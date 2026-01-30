@@ -1,0 +1,836 @@
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
+import hashlib
+import json
+import dotenv
+import os
+import time
+import uuid
+from datetime import datetime
+from colorama import init, Fore, Back, Style
+import glob
+import sys
+
+# Инициализация цветного вывода
+init(autoreset=True)
+
+app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key')
+
+# Selected test file path (set at startup via CLI selector or TEST_FILE env)
+SELECTED_TEST_FILE = None
+# Allow selecting test file via environment variable (useful for non-interactive runs)
+env_test = os.environ.get('TEST_FILE')
+if env_test:
+    candidate = os.path.join('tests', env_test) if not os.path.isabs(env_test) else env_test
+    if os.path.exists(candidate):
+        SELECTED_TEST_FILE = candidate
+        print(f"[INFO] SELECTED_TEST_FILE set from TEST_FILE env: {SELECTED_TEST_FILE}")
+
+# Список уроков
+# В начале app.py удаляем старый список LESSONS и инициализируем пустым
+LESSONS = []
+
+# Simple admin credentials (stored as hash in code)
+# Change these values as needed. Nickname is plain, password stored as sha256 hex.
+ADMIN_NICK = dotenv.get_key('.env', 'ADMIN_NICK') or os.environ.get('ADMIN_NICK', 'admin')
+ADMIN_PASS_HASH = dotenv.get_key('.env', 'ADMIN_PASSWORD') or os.environ.get('ADMIN_PASS_HASH', hashlib.sha256('secret123'.encode()).hexdigest())
+
+def build_lessons_from_file(file_path):
+    global LESSONS
+    if not file_path or not os.path.exists(file_path):
+        return
+
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return
+
+    # Если в файле есть структура 'lessons'
+    if 'lessons' in data:
+        lessons_arr = data.get('lessons', [])
+        new_lessons = []
+        for l in lessons_arr:
+            # Берем имя урока из JSON, если его нет — генерируем по ID
+            name = l.get('name') or f"Занятие {l.get('id')}"
+            new_lessons.append({'id': l.get('id'), 'name': name})
+        
+        if new_lessons:
+            LESSONS = new_lessons
+            print(f"[INFO] Уроки загружены из файла: {len(LESSONS)} шт.")
+            return
+
+    # Если файла нет 'lessons', попробуем по-умному построить уроки из плоского массива 'questions'
+    qs = data.get('questions', [])
+    if qs:
+        # Попробуем определить количество уроков
+        # 1) Если есть поле _source у вопросов — разделим по уникальным источникам
+        sources = [q.get('_source') for q in qs if isinstance(q, dict) and q.get('_source')]
+        unique_sources = []
+        for s in sources:
+            if s not in unique_sources:
+                unique_sources.append(s)
+
+        if unique_sources:
+            new_lessons = []
+            for i, src in enumerate(unique_sources, start=1):
+                new_lessons.append({'id': i, 'name': f"Занятие {i}: {src}"})
+            LESSONS = new_lessons
+            print(f"[INFO] Уроки построены по _source: {len(LESSONS)} шт.")
+            return
+
+
+        lessons_count = len(LESSONS) if len(LESSONS) > 0 else 1
+
+        # Если в данный момент LESSONS пуст, и мы не смогли определить count — попробуем равномерно разделить
+        if lessons_count == 1 and len(qs) > 1:
+            # Если количество вопросов кратно 4 или 8, выберем более разумное число
+            if len(qs) % 8 == 0:
+                lessons_count = 8
+            elif len(qs) % 4 == 0:
+                lessons_count = 4
+
+        # Построим LESSONS с именами "Занятие N"
+        new_lessons = [{'id': i, 'name': f"Занятие {i}"} for i in range(1, lessons_count + 1)]
+        LESSONS = new_lessons
+        print(f"[INFO] Уроки построены из плоского списка: {len(LESSONS)} шт.")
+        return
+
+    # Ничего не получилось — оставляем LESSONS пустым
+    print("[WARN] Не удалось построить LESSONS из файла", file_path)
+
+# Хранилище сессий учеников
+sessions = {}
+
+# Хранилище завершенных тестов
+completed_tests = []
+
+LOG_FILE = 'logs.txt'
+
+def append_log_entry(entry, path=LOG_FILE):
+    try:
+        with open(path, 'a', encoding='utf-8') as f:
+            json.dump(entry, f, ensure_ascii=False)
+            f.write('\n')
+    except Exception as e:
+        print(f"[ERROR] Не удалось записать в лог {path}: {e}")
+
+
+def load_logs(path=LOG_FILE):
+    """Load existing completed test records from logs file into completed_tests."""
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    # Basic validation
+                    if isinstance(rec, dict) and 'id' in rec:
+                        completed_tests.append(rec)
+                except Exception:
+                    # skip malformed lines
+                    continue
+        print(f"[INFO] Загружено {len(completed_tests)} записей из {path}")
+    except Exception as e:
+        print(f"[ERROR] Не удалось прочитать логи {path}: {e}")
+
+def load_questions(lesson_id=None):
+    """Load questions from the selected test file if set, otherwise fall back
+    to the legacy `tests/lesson{lesson_id}.json` behaviour.
+    """
+    # If a test file was selected at startup, use it.
+    if SELECTED_TEST_FILE:
+        if os.path.exists(SELECTED_TEST_FILE):
+            try:
+                with open(SELECTED_TEST_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                # If merged file contains per-lesson grouping
+                if 'lessons' in data and lesson_id is not None:
+                    lessons = data.get('lessons', [])
+                    idx = max(0, lesson_id - 1)
+                    if 0 <= idx < len(lessons):
+                        qs = lessons[idx].get('questions', [])
+                        print(f"[DEBUG] load_questions -> using lessons[{idx}] from {SELECTED_TEST_FILE}, questions={len(qs)}")
+                        return qs
+                    else:
+                        # If requested lesson_id out of range, fallback to empty
+                        return []
+
+                # If no 'lessons' grouping, but flat 'questions' exists, try to split evenly
+                qs_all = data.get('questions', [])
+                if qs_all and lesson_id is not None:
+                    # try to split into equal chunks per configured LESSONS
+                    lessons_count = len(LESSONS)
+                    if lessons_count > 0 and len(qs_all) % lessons_count == 0:
+                        chunk = len(qs_all) // lessons_count
+                        idx = max(0, lesson_id - 1)
+                        start = idx * chunk
+                        end = start + chunk
+                        subset = qs_all[start:end]
+                        print(f"[DEBUG] load_questions -> split flat questions into chunks, returning {len(subset)} questions for lesson {lesson_id}")
+                        return subset
+
+                # Fallback: return all questions if no lesson_id provided
+                print(f"[DEBUG] load_questions -> returning all questions from {SELECTED_TEST_FILE}, total={len(qs_all)}")
+                return qs_all
+            except Exception:
+                print(f"[DEBUG] load_questions -> failed reading SELECTED_TEST_FILE={SELECTED_TEST_FILE}")
+                return []
+
+    # Fallback: legacy behaviour by lesson id
+    if lesson_id is not None:
+        filename = f'tests/lesson{lesson_id}.json'
+        if os.path.exists(filename):
+            with open(filename, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data.get('questions', [])
+
+    return []
+
+
+def scan_test_files():
+    """Return list of json files in the `tests` directory."""
+    files = sorted(glob.glob(os.path.join('tests', '*.json')))
+    return files
+
+
+def merge_test_files(selected_paths, out_filename):
+    """Merge selected JSON test files (each expected to have 'questions') into one JSON file.
+
+    Reassigns incremental numeric `id` to questions to avoid duplicates.
+    """
+    lessons_payload = []
+    merged_questions = []
+
+    for path in selected_paths:
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"Не удалось прочитать {path}: {e}")
+            continue
+
+        questions = data.get('questions') or []
+        # assign new ids within this lesson starting at 1
+        lesson_questions = []
+        next_id = 1
+        for q in questions:
+            nq = dict(q)
+            nq['id'] = next_id
+            nq['_source'] = os.path.basename(path)
+            lesson_questions.append(nq)
+            merged_questions.append(nq)
+            next_id += 1
+
+        lessons_payload.append({
+            'file': os.path.basename(path),
+            'questions': lesson_questions
+        })
+
+    out_path = os.path.join('tests', out_filename)
+    payload = {
+        'title': out_filename,
+        'lessons': lessons_payload,
+        'questions': merged_questions
+    }
+    try:
+        with open(out_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        print(f"Создан объединённый файл: {out_path} ({len(merged_questions)} вопросов, {len(lessons_payload)} уроков)")
+    except Exception as e:
+        print(f"Ошибка при записи {out_path}: {e}")
+
+
+def interactive_test_selector():
+    """Interactive selector at startup.
+
+    Allows choosing a single existing `tests/*.json` file to use as the lesson,
+    or selecting multiple files to merge into a new file. Returns the selected
+    filename (basename) or None.
+    """
+    global SELECTED_TEST_FILE
+
+    if not sys.stdin.isatty():
+        return None
+
+    files = scan_test_files()
+    if not files:
+        print('Файлы тестов не найдены в папке tests/.')
+        return None
+
+    print('\nНайденные JSON файлы в tests/:')
+    for i, p in enumerate(files, start=1):
+        print(f"  {i}. {os.path.basename(p)}")
+
+    print('\nВыберите один номер для использования как урок (например: 2),')
+    print('или укажите несколько номеров через запятую для объединения (например: 1,2).')
+    print('Нажмите Enter чтобы пропустить:')
+    sel = input('> ').strip()
+    if not sel:
+        return None
+
+    try:
+        indices = [int(x.strip()) for x in sel.split(',') if x.strip()]
+    except ValueError:
+        print('Некорректный ввод.')
+        return None
+
+    selected = []
+    for idx in indices:
+        if 1 <= idx <= len(files):
+            selected.append(files[idx - 1])
+
+    if not selected:
+        print('Нет выбранных файлов.')
+        return None
+
+    if len(selected) == 1:
+        # single file selected -> use it as the lesson
+        SELECTED_TEST_FILE = selected[0]
+        print(f"Выбран файл урока: {os.path.basename(SELECTED_TEST_FILE)}")
+        return os.path.basename(SELECTED_TEST_FILE)
+
+    # multiple selected -> merge
+    print('Введите имя выходного файла (например web+css.json):')
+    out_name = input('> ').strip()
+    if not out_name:
+        out_name = 'web+css.json'
+
+    merge_test_files(selected, out_name)
+    SELECTED_TEST_FILE = os.path.join('tests', out_name)
+    return out_name
+
+def log_event(session_id, event_type, message, **kwargs):
+    """Логирование событий в терминал с цветами"""
+    timestamp = datetime.now().strftime('%H:%M:%S')
+    session_info = sessions.get(session_id, {})
+    student_name = session_info.get('student_name', 'Неизвестный ученик')
+    
+    # Цвета для разных типов событий
+    colors = {
+        'START': Fore.GREEN + Style.BRIGHT,
+        'QUESTION': Fore.BLUE + Style.BRIGHT,
+        'ANSWER': Fore.CYAN + Style.BRIGHT,
+        'SUBMIT': Fore.YELLOW + Style.BRIGHT,
+        'ERROR': Fore.RED + Style.BRIGHT,
+        'INFO': Fore.WHITE + Style.BRIGHT
+    }
+    
+    color = colors.get(event_type, Fore.WHITE)
+    
+    # Формирование сообщения
+    if event_type == 'START':
+        print(f"\n{'='*80}")
+        print(f"{color}🎓 [{timestamp}] {event_type}: {student_name}")
+        print(f"{color}📝 {message}")
+        print(f"{'='*80}\n")
+        
+    elif event_type == 'QUESTION':
+        question_num = kwargs.get('question_num', '?')
+        total_questions = kwargs.get('total_questions', '?')
+        print(f"{color}❓ [{timestamp}] {student_name} - Вопрос {question_num}/{total_questions}: {message}")
+        
+    elif event_type == 'ANSWER':
+        question_num = kwargs.get('question_num', '?')
+        is_correct = kwargs.get('is_correct', False)
+        user_answer = kwargs.get('user_answer', '?')
+        correct_answer = kwargs.get('correct_answer', '?')
+        status = '✅ Правильно' if is_correct else '❌ Неправильно'
+        status_color = Fore.GREEN if is_correct else Fore.RED
+        print(f"{Fore.WHITE}📝 [{timestamp}] {student_name} - Ответ {question_num}: {status_color}{status}")
+        print(f"{Fore.WHITE}   Ваш ответ: {user_answer} | Правильный: {correct_answer}")
+        
+    elif event_type == 'SUBMIT':
+        score = kwargs.get('score', 0)
+        total = kwargs.get('total', 0)
+        percentage = kwargs.get('percentage', 0)
+        grade = kwargs.get('grade', '-')
+        elapsed_time = kwargs.get('elapsed_time', 0)
+        print(f"\n{'─'*80}")
+        print(f"{color}🏁 [{timestamp}] ТЕСТ ЗАВЕРШЕН: {student_name}")
+        print(f"{color}📊 Результаты: {Fore.WHITE + Style.BRIGHT}{score}/{total} ({percentage}%)")
+        print(f"{color}⭐ Оценка: {Fore.WHITE + Style.BRIGHT}{grade}")
+        print(f"{color}⏱️  Время: {Fore.WHITE + Style.BRIGHT}{elapsed_time} сек")
+        print(f"{'─'*80}\n")
+        
+    elif event_type == 'ERROR':
+        print(f"{color}❌ [{timestamp}] ОШИБКА: {message}")
+        
+    else:
+        print(f"{color}[{timestamp}] {event_type}: {message}")
+
+@app.route('/')
+def index():
+    return render_template('index.html', lessons=LESSONS)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        nick = request.form.get('nick', '')
+        password = request.form.get('password', '')
+        pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        if nick == ADMIN_NICK and pw_hash == ADMIN_PASS_HASH:
+            session['admin'] = True
+            session['admin_nick'] = nick
+            return redirect(url_for('teacher_dashboard'))
+        else:
+            error = 'Неправильный ник или пароль.'
+
+    return render_template('login.html', error=error)
+
+
+@app.route('/logout')
+def logout():
+    session.pop('admin', None)
+    session.pop('admin_nick', None)
+    return redirect(url_for('login'))
+
+@app.route('/api/lessons', methods=['GET'])
+def get_lessons():
+    return jsonify(LESSONS)
+
+@app.route('/api/questions/<int:lesson_id>', methods=['GET'])
+def get_questions(lesson_id):
+    # If a selected merged file exists, prefer slicing there to be explicit
+    if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
+        try:
+            with open(SELECTED_TEST_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # If file has per-lesson grouping
+            if 'lessons' in data:
+                lessons = data.get('lessons', [])
+                idx = max(0, lesson_id - 1)
+                if 0 <= idx < len(lessons):
+                    qs = lessons[idx].get('questions', [])
+                    print(f"[DEBUG] /api/questions -> returning lessons[{idx}] from {SELECTED_TEST_FILE} ({len(qs)})")
+                    return jsonify(qs)
+
+            # If flat questions array, try to split evenly by LESSONS
+            qs_all = data.get('questions', [])
+            lessons_count = len(LESSONS)
+            if qs_all and lessons_count > 0 and len(qs_all) % lessons_count == 0:
+                chunk = len(qs_all) // lessons_count
+                idx = max(0, lesson_id - 1)
+                start = idx * chunk
+                end = start + chunk
+                subset = qs_all[start:end]
+                print(f"[DEBUG] /api/questions -> returning chunk {idx} ({len(subset)}) from {SELECTED_TEST_FILE}")
+                return jsonify(subset)
+
+            # Fallback: return entire questions array
+            print(f"[DEBUG] /api/questions -> fallback returning all ({len(qs_all)}) from {SELECTED_TEST_FILE}")
+            return jsonify(qs_all)
+        except Exception as e:
+            print(f"[DEBUG] /api/questions error reading {SELECTED_TEST_FILE}: {e}")
+
+    # Default behaviour
+    questions = load_questions(lesson_id)
+    try:
+        print(f"[DEBUG] /api/questions/{lesson_id} -> type={type(questions).__name__}, len={len(questions) if hasattr(questions, '__len__') else 'n/a'}")
+    except Exception:
+        pass
+    return jsonify(questions)
+
+@app.route('/api/start_session', methods=['POST'])
+def start_session():
+    """Создание новой сессии для ученика"""
+    try:
+        data = request.get_json()
+        student_name = data.get('student_name', 'Ученик')
+        lesson_id = data.get('lesson_id', 1)
+        
+        # Генерация уникального ID сессии
+        session_id = str(uuid.uuid4())[:8]
+        
+        # Determine lesson name/file: prefer SELECTED_TEST_FILE if set
+        if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
+            lesson_file = SELECTED_TEST_FILE
+            # keep lesson number/name from LESSONS so UI shows the lesson number
+            try:
+                lesson_name = LESSONS[lesson_id - 1]['name']
+            except Exception:
+                lesson_name = os.path.splitext(os.path.basename(lesson_file))[0]
+            stored_lesson_id = lesson_id
+        else:
+            lesson_file = None
+            # keep behaviour for numeric lessons
+            lesson_name = LESSONS[lesson_id - 1]['name']
+            stored_lesson_id = lesson_id
+
+        # Сохранение информации о сессии
+        sessions[session_id] = {
+            'student_name': student_name,
+            'lesson_id': stored_lesson_id,
+            'lesson_file': lesson_file,
+            'lesson_name': lesson_name,
+            'start_time': time.time(),
+            'start_timestamp': datetime.now().isoformat(),
+            'questions_answered': 0,
+            'correct_answers': 0,
+            'current_question': 1,
+            'answers_log': []
+        }
+        
+        # Логирование начала теста
+        log_event(
+            session_id, 
+            'START', 
+            f'Начал тест по уроку: {lesson_name}',
+            lesson_id=stored_lesson_id
+        )
+        
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'student_name': student_name
+        })
+    except Exception as e:
+        log_event('unknown', 'ERROR', f'Ошибка создания сессии: {str(e)}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/log_question', methods=['POST'])
+def log_question():
+    """Логирование просмотра вопроса"""
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        question_num = data.get('question_num')
+        question_text = data.get('question_text', '')
+        
+        if session_id in sessions:
+            # Обновляем текущий вопрос
+            sessions[session_id]['current_question'] = question_num
+            # Обновляем количество отвеченных вопросов: если ученик на вопросе N, значит отвечен N-1
+            try:
+                qn = int(question_num)
+                prev_ans = sessions[session_id].get('questions_answered', 0)
+                sessions[session_id]['questions_answered'] = max(prev_ans, max(0, qn - 1))
+            except Exception:
+                # если question_num не число — не меняем
+                pass
+            total_questions = len(load_questions(sessions[session_id].get('lesson_id')))
+            
+            log_event(
+                session_id,
+                'QUESTION',
+                question_text,
+                question_num=question_num,
+                total_questions=total_questions
+            )
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Ошибка логирования вопроса: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/add_question', methods=['POST'])
+def add_question():
+    try:
+        new_question = request.get_json()
+        
+        # Загрузка текущих вопросов
+        with open('questions.json', 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Генерация нового ID
+        max_id = max([q['id'] for q in data['questions']], default=0)
+        new_question['id'] = max_id + 1
+        
+        # Добавление нового вопроса
+        data['questions'].append(new_question)
+        
+        # Сохранение обратно в файл
+        with open('questions.json', 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({'success': True, 'message': 'Вопрос добавлен'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/sessions', methods=['GET'])
+def get_sessions():
+    """Получение списка активных сессий"""
+    active_sessions = []
+    current_time = time.time()
+    
+    for sid, data in list(sessions.items()):
+        elapsed = int(current_time - data['start_time'])
+        # Удаляем сессии старше 1 часа
+        if elapsed > 3600:
+            del sessions[sid]
+            continue
+            
+        active_sessions.append({
+            'session_id': sid,
+            'student_name': data['student_name'],
+            'lesson_name': data['lesson_name'],
+            'elapsed_time': elapsed,
+            'questions_answered': data.get('questions_answered', 0),
+            'correct_answers': data.get('correct_answers', 0),
+            'current_question': data.get('current_question', 1),
+            'start_time': data.get('start_timestamp', '')
+        })
+    
+    return jsonify({
+        'active_sessions': active_sessions,
+        'total_active': len(active_sessions),
+        'timestamp': datetime.now().strftime('%H:%M:%S')
+    })
+
+# Хранилище завершенных тестов
+completed_tests = []
+
+@app.route('/dashboard')
+def teacher_dashboard():
+    """Страница дашборда для преподавателя"""
+    if not session.get('admin'):
+        return redirect(url_for('login'))
+    return render_template('dashboard.html')
+
+@app.route('/api/dashboard/stats', methods=['GET'])
+def get_dashboard_stats():
+    """Получение статистики для дашборда"""
+    current_time = time.time()
+    
+    # Фильтрация старых сессий
+    for sid in list(sessions.keys()):
+        if current_time - sessions[sid]['start_time'] > 3600:
+            del sessions[sid]
+    
+    # Активные сессии
+    active_sessions = []
+    for sid, data in sessions.items():
+        elapsed = int(current_time - data['start_time'])
+        total_questions = len(load_questions(data.get('lesson_id')))
+        progress = (data.get('questions_answered', 0) / total_questions * 100) if total_questions > 0 else 0
+        
+        active_sessions.append({
+            'session_id': sid,
+            'student_name': data['student_name'],
+            'lesson_name': data['lesson_name'],
+            'lesson_id': data['lesson_id'],
+            'elapsed_time': elapsed,
+            'elapsed_time_formatted': f"{elapsed // 60}:{elapsed % 60:02d}",
+            'questions_answered': data.get('questions_answered', 0),
+            'correct_answers': data.get('correct_answers', 0),
+            'total_questions': total_questions,
+            'progress': round(progress, 1),
+            'progress_color': '#4CAF50' if progress > 75 else '#FF9800' if progress > 50 else '#F44336'
+        })
+    
+    # Недавние завершенные тесты (последние 20)
+    recent_tests = completed_tests[-20:][::-1]  # последние 20 в обратном порядке
+    
+    # Статистика по урокам
+    lesson_stats = {}
+    for lesson in LESSONS:
+        lesson_stats[lesson['id']] = {
+            'lesson_id': lesson['id'],
+            'lesson_name': lesson['name'],
+            'completed_count': 0,
+            'average_score': 0,
+            'average_percentage': 0,
+            'total_points': 0
+        }
+    
+    for test in completed_tests:
+        lid = test['lesson_id']
+        if lid in lesson_stats:
+            lesson_stats[lid]['completed_count'] += 1
+            lesson_stats[lid]['total_points'] += test['percentage']
+    
+    for lid, stats in lesson_stats.items():
+        if stats['completed_count'] > 0:
+            stats['average_percentage'] = round(stats['total_points'] / stats['completed_count'], 1)
+            stats['average_score_text'] = f"{stats['average_percentage']}%"
+            stats['trend'] = 'up' if stats['average_percentage'] > 70 else 'down'
+    
+    # Общая статистика
+    total_completed = len(completed_tests)
+    total_active = len(active_sessions)
+    
+    if total_completed > 0:
+        avg_percentage = sum(t['percentage'] for t in completed_tests) / total_completed
+        avg_time = sum(t['elapsed_time'] for t in completed_tests) / total_completed
+        
+        # Расчет оценок
+        excellent = len([t for t in completed_tests if t['percentage'] >= 90])
+        good = len([t for t in completed_tests if 75 <= t['percentage'] < 90])
+        satisfactory = len([t for t in completed_tests if 60 <= t['percentage'] < 75])
+        unsatisfactory = len([t for t in completed_tests if t['percentage'] < 60])
+    else:
+        avg_percentage = 0
+        avg_time = 0
+        excellent = good = satisfactory = unsatisfactory = 0
+    
+    return jsonify({
+        'active_sessions': active_sessions,
+        'recent_tests': recent_tests,
+        'lesson_stats': list(lesson_stats.values()),
+        'total_stats': {
+            'total_completed': total_completed,
+            'total_active': total_active,
+            'average_percentage': round(avg_percentage, 1),
+            'average_time': round(avg_time, 1),
+            'excellent': excellent,
+            'good': good,
+            'satisfactory': satisfactory,
+            'unsatisfactory': unsatisfactory
+        },
+        'timestamp': datetime.now().strftime('%H:%M:%S')
+    })
+
+# Обновление метода submit_answers для сохранения завершенных тестов
+@app.route('/api/submit', methods=['POST'])
+def submit_answers():
+    """Проверка ответов и завершение теста - ОСНОВНОЙ МЕТОД С ЛОГИРОВАНИЕМ"""
+    try:
+        data = request.get_json()
+        user_answers = data.get('answers', [])
+        lesson_id = data.get('lesson_id', 1)
+        session_id = data.get('session_id')
+        
+        questions = load_questions(lesson_id)
+        
+        score = 0
+        total_questions = len(questions)
+        results = []
+        
+        # Логирование КАЖДОГО ответа
+        print(f"\n{Fore.CYAN + Style.BRIGHT}📝 Детальная проверка ответов:")
+        print(f"{Fore.CYAN}{'─'*80}")
+        
+        for i, question in enumerate(questions):
+            user_answer = user_answers[i] if i < len(user_answers) else None
+            correct_answer = question['correct_answer']
+            is_correct = user_answer == correct_answer
+            
+            # Получение текста ответов
+            user_answer_text = question['options'][user_answer] if user_answer is not None else 'Не отвечено'
+            correct_answer_text = question['options'][correct_answer]
+            
+            # Логирование каждого ответа
+            status = '✅' if is_correct else '❌'
+            status_color = Fore.GREEN if is_correct else Fore.RED
+            answer_color = Fore.CYAN if is_correct else Fore.YELLOW
+            
+            print(f"{status_color}{status} {Fore.WHITE}Вопрос {i+1}: {question['question'][:60]}...")
+            print(f"   {answer_color}Ваш ответ: {user_answer_text}")
+            print(f"   {Fore.GREEN}Правильно: {correct_answer_text}")
+            print()
+            
+            if is_correct:
+                score += question.get('points', 1)
+            
+            results.append({
+                'question_id': question['id'],
+                'user_answer': user_answer,
+                'correct_answer': correct_answer,
+                'is_correct': is_correct,
+                'question_text': question['question'],
+                'options': question['options']
+            })
+        
+        print(f"{Fore.CYAN}{'─'*80}\n")
+        
+        percentage = (score / total_questions) * 100 if total_questions > 0 else 0
+        
+        # Расчет оценки
+        if percentage >= 90:
+            grade = '5 (Отлично)'
+        elif percentage >= 75:
+            grade = '4 (Хорошо)'
+        elif percentage >= 60:
+            grade = '3 (Удовлетворительно)'
+        else:
+            grade = '2 (Неудовлетворительно)'
+        
+        # Логирование результатов
+        if session_id in sessions:
+            student_name = sessions[session_id]['student_name']
+            elapsed_time = int(time.time() - sessions[session_id]['start_time'])
+            
+            log_event(
+                session_id,
+                'SUBMIT',
+                f'Тест завершен',
+                score=score,
+                total=total_questions,
+                percentage=round(percentage, 2),
+                grade=grade,
+                elapsed_time=elapsed_time
+            )
+            
+            # Сохранение завершенного теста (в память и в лог-файл)
+            record = {
+                'id': str(uuid.uuid4())[:8],
+                'student_id': session_id,
+                'student_name': student_name,
+                'lesson_id': sessions[session_id]['lesson_id'],
+                'lesson_name': sessions[session_id]['lesson_name'],
+                'score': score,
+                'total': total_questions,
+                'percentage': round(percentage, 2),
+                'grade': grade,
+                'elapsed_time': elapsed_time,
+                'elapsed_time_formatted': f"{elapsed_time // 60}:{elapsed_time % 60:02d}",
+                'timestamp': datetime.now().strftime('%H:%M:%S'),
+                'date': datetime.now().strftime('%Y-%m-%d')
+            }
+            completed_tests.append(record)
+            try:
+                append_log_entry(record)
+            except Exception:
+                print('[WARN] Не удалось записать запись в logs.txt')
+            
+            # Очистка сессии
+            del sessions[session_id]
+        
+        return jsonify({
+            'success': True,
+            'score': score,
+            'total': total_questions,
+            'percentage': round(percentage, 2),
+            'grade': grade,
+            'results': results
+        })
+    except Exception as e:
+        log_event('unknown', 'ERROR', f'Ошибка при проверке ответов: {str(e)}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+if __name__ == '__main__':
+    # При запуске — предложим интерактивно выбрать/объединить файлы тестов (если TTY)
+    try:
+        created = interactive_test_selector()
+        if created:
+            print(f"Объединённый файл создан: tests/{created}")
+        # Rebuild LESSONS from the selected file (if any)
+        if SELECTED_TEST_FILE:
+            build_lessons_from_file(SELECTED_TEST_FILE)
+        # Load persisted completed tests from logs.txt
+        load_logs()
+    except Exception:
+        # не мешаем запуску сервера в случае ошибок в селекторе
+        pass
+
+    print(f"\n{Fore.GREEN + Style.BRIGHT}🚀 Сервер запускается...")
+    print(f"{Fore.CYAN}📚 Доступные уроки:")
+    for lesson in LESSONS:
+        print(f"   {lesson['id']}. {lesson['name']}")
+    print(f"\n{Fore.YELLOW}📡 Сервер запущен: {Fore.WHITE + Style.BRIGHT}http://localhost:5000")
+    print(f"{Fore.YELLOW}📊 Дашборд: {Fore.WHITE + Style.BRIGHT}http://localhost:5000/dashboard")
+    print(f"{Fore.YELLOW}📈 API статистики: {Fore.WHITE + Style.BRIGHT}http://localhost:5000/api/dashboard/stats")
+    print(f"\n{Fore.GREEN + Style.BRIGHT}{'─'*80}\n")
+    
+    app.run(debug=True, host='0.0.0.0', port=8000)

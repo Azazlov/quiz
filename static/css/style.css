@@ -1,0 +1,410 @@
+/* Стили для списка уроков */
+.lessons-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 20px;
+    margin: 30px 0;
+}
+
+.lesson-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 25px;
+    border-radius: 15px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.lesson-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+}
+
+.lesson-card h3 {
+    font-size: 1.1em;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.lesson-card .lesson-number {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.3);
+    padding: 6px 18px;
+    border-radius: 25px;
+    font-weight: bold;
+    font-size: 1.1em;
+    margin-bottom: 12px;
+}
+
+/* Стили для экранов */
+.screen {
+    display: none;
+    padding: 40px;
+    min-height: 400px;
+}
+
+.screen.active {
+    display: block;
+    animation: fadeIn 0.5s ease;
+}
+
+@keyframes fadeIn {
+    from { 
+        opacity: 0; 
+        transform: translateY(20px); 
+    }
+    to { 
+        opacity: 1; 
+        transform: translateY(0); 
+    }
+}
+
+/* Стили для выбора урока */
+.welcome-content {
+    text-align: center;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.welcome-content h2 {
+    font-size: 2em;
+    margin-bottom: 15px;
+    color: #333;
+}
+
+.subtitle {
+    font-size: 1.2em;
+    margin-bottom: 30px;
+    color: #666;
+}
+
+.teacher-controls {
+    margin-top: 40px;
+    padding-top: 25px;
+    border-top: 2px solid #eee;
+}
+
+/* Стили для теста */
+.quiz-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 2px solid #eee;
+}
+
+.progress, .timer {
+    font-size: 1.3em;
+    font-weight: bold;
+}
+
+.timer {
+    color: #e74c3c;
+}
+
+.question-container {
+    margin-bottom: 40px;
+}
+
+.question-text {
+    font-size: 1.5em;
+    margin-bottom: 30px;
+    line-height: 1.6;
+    color: #333;
+}
+
+.options-container {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.option {
+    padding: 18px 25px;
+    background: #f8f9fa;
+    border: 2px solid #dee2e6;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+}
+
+.option:hover {
+    background: #e9ecef;
+    border-color: #667eea;
+}
+
+.option.selected {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.option.correct {
+    background: #28a745;
+    color: white;
+    border-color: #28a745;
+}
+
+.option.incorrect {
+    background: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+
+.option-label {
+    margin-left: 15px;
+    font-size: 1.15em;
+}
+
+.quiz-controls {
+    display: flex;
+    justify-content: space-between;
+    gap: 15px;
+}
+
+/* Стили для кнопок */
+.btn {
+    padding: 14px 35px;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.05em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    flex: 1;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.btn-primary:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+}
+
+.btn-success {
+    background: #28a745;
+    color: white;
+}
+
+.btn-success:hover {
+    background: #218838;
+}
+
+/* Стили для результатов */
+.results-content {
+    text-align: center;
+}
+
+.results-content h2 {
+    font-size: 2.2em;
+    margin-bottom: 30px;
+    color: #333;
+}
+
+.score-display {
+    font-size: 3.5em;
+    font-weight: bold;
+    margin-bottom: 25px;
+    color: #667eea;
+}
+
+.grade {
+    font-size: 1.9em;
+    margin-bottom: 40px;
+    padding: 18px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    border-left: 6px solid #667eea;
+}
+
+.detailed-results {
+    text-align: left;
+    max-height: 350px;
+    overflow-y: auto;
+    margin-bottom: 35px;
+    padding-right: 10px;
+}
+
+.result-item {
+    padding: 18px;
+    margin-bottom: 15px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    border-left: 5px solid #667eea;
+}
+
+.result-item.correct {
+    border-left-color: #28a745;
+    background: #d4edda;
+}
+
+.result-item.incorrect {
+    border-left-color: #dc3545;
+    background: #f8d7da;
+}
+
+.result-question {
+    font-weight: bold;
+    margin-bottom: 8px;
+    font-size: 1.05em;
+}
+
+.result-answer {
+    color: #666;
+    line-height: 1.6;
+}
+
+/* Модальное окно */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6);
+    justify-content: center;
+    align-items: center;
+}
+
+.modal.active {
+    display: flex;
+}
+
+.modal-content {
+    background: white;
+    padding: 35px;
+    border-radius: 18px;
+    max-width: 650px;
+    width: 90%;
+    max-height: 85vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.close {
+    float: right;
+    font-size: 2.2em;
+    cursor: pointer;
+    color: #999;
+    transition: color 0.3s;
+}
+
+.close:hover {
+    color: #333;
+}
+
+.form-group {
+    margin-bottom: 25px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: bold;
+    color: #333;
+    font-size: 1.05em;
+}
+
+.form-group textarea,
+.form-group input[type="text"],
+.form-group input[type="number"] {
+    width: 100%;
+    padding: 14px;
+    border: 2px solid #dee2e6;
+    border-radius: 10px;
+    font-size: 1em;
+    transition: border-color 0.3s;
+    font-family: inherit;
+}
+
+.form-group textarea:focus,
+.form-group input[type="text"]:focus,
+.form-group input[type="number"]:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.option-row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.option-row input[type="radio"] {
+    margin-right: 12px;
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+}
+
+.option-input {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    font-size: 1em;
+}
+
+/* Адаптивность */
+@media (max-width: 768px) {
+    header h1 {
+        font-size: 1.8em;
+    }
+    
+    .subtitle {
+        font-size: 1em;
+    }
+    
+    .container {
+        border-radius: 12px;
+    }
+    
+    .screen {
+        padding: 25px;
+    }
+    
+    .question-text {
+        font-size: 1.3em;
+    }
+    
+    .btn {
+        padding: 12px 25px;
+        font-size: 0.95em;
+    }
+    
+    .quiz-controls {
+        flex-direction: column;
+    }
+    
+    .score-display {
+        font-size: 2.5em;
+    }
+    
+    .lessons-list {
+        grid-template-columns: 1fr;
+    }
+}

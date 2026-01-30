@@ -1,0 +1,821 @@
+{
+  "title": "web+css.json",
+  "lessons": [
+    {
+      "id": 1,
+      "name": "Занятие 1: Знакомство с вебом и первые шаги",
+      "questions": [
+        {
+          "id": 1,
+          "question": "Что такое браузер?",
+          "options": [
+            "Программа для просмотра сайтов",
+            "Программа для создания музыки",
+            "Компьютерная игра",
+            "Антивирус"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        },
+        {
+          "id": 2,
+          "question": "Какой тег используется для создания заголовка первого уровня?",
+          "options": [
+            "<title>",
+            "<h1>",
+            "<header>",
+            "<heading>"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 3,
+          "question": "Какой тег используется для создания абзаца текста?",
+          "options": [
+            "<text>",
+            "<paragraph>",
+            "<p>",
+            "<div>"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 4,
+          "question": "Какой тег используется для переноса строки?",
+          "options": [
+            "<break>",
+            "<newline>",
+            "<br>",
+            "<hr>"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 5,
+          "question": "Что означает <!DOCTYPE html>?",
+          "options": [
+            "Начало документа на языке программирования",
+            "Объявление типа документа - что это HTML5",
+            "Комментарий в коде",
+            "Название сайта"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 6,
+          "question": "В каком теге находится название сайта, которое отображается в заголовке браузера?",
+          "options": [
+            "<h1>",
+            "<title>",
+            "<name>",
+            "<head>"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 7,
+          "question": "Какой тег является корневым элементом всего документа HTML?",
+          "options": [
+            "<document>",
+            "<html>",
+            "<root>",
+            "<body>"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 8,
+          "question": "В каком теге находится видимая часть сайта?",
+          "options": [
+            "<head>",
+            "<title>",
+            "<body>",
+            "<content>"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Занятие 2: Добавляем картинки и ссылки",
+      "questions": [
+        {
+          "id": 1,
+          "question": "Какой тег используется для вставки изображения?",
+          "options": [
+            "<picture>",
+            "<image>",
+            "<img>",
+            "<photo>"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 2,
+          "question": "Какой атрибут указывает путь к изображению?",
+          "options": [
+            "path",
+            "link",
+            "url",
+            "src"
+          ],
+          "correct_answer": 3,
+          "points": 1
+        },
+        {
+          "id": 3,
+          "question": "Какой атрибут содержит описание изображения?",
+          "options": [
+            "description",
+            "alt",
+            "title",
+            "text"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 4,
+          "question": "Какой тег используется для создания ссылки?",
+          "options": [
+            "<link>",
+            "<a>",
+            "<href>",
+            "<url>"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 5,
+          "question": "Какой атрибут указывает адрес ссылки?",
+          "options": [
+            "link",
+            "url",
+            "href",
+            "src"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 6,
+          "question": "Что означает относительный путь в ссылке?",
+          "options": [
+            "Путь от корня сайта",
+            "Путь от текущего файла",
+            "Путь к внешнему сайту",
+            "Полный интернет-адрес"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 7,
+          "question": "Как правильно создать папку для изображений?",
+          "options": [
+            "images",
+            "img",
+            "pictures",
+            "photos"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        },
+        {
+          "id": 8,
+          "question": "Какая ссылка ведет на внешний сайт?",
+          "options": [
+            "about.html",
+            "images/photo.jpg",
+            "https://youtube.com",
+            "index.html"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Занятие 3: Основы CSS — стилизация текста",
+      "questions": [
+        {
+          "id": 1,
+          "question": "Что такое CSS?",
+          "options": [
+            "Язык программирования",
+            "Язык для оформления и стилизации сайтов",
+            "Язык разметки",
+            "Тип файла с изображениями"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 2,
+          "question": "Какое свойство меняет цвет текста?",
+          "options": [
+            "background-color",
+            "text-color",
+            "color",
+            "font-color"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 3,
+          "question": "Какое свойство меняет цвет фона?",
+          "options": [
+            "background",
+            "background-color",
+            "bgcolor",
+            "color"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 4,
+          "question": "Какое свойство меняет шрифт текста?",
+          "options": [
+            "font",
+            "font-family",
+            "text-font",
+            "typeface"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 5,
+          "question": "Какое свойство выравнивает текст?",
+          "options": [
+            "align",
+            "text-align",
+            "position",
+            "justify"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 6,
+          "question": "Какой селектор применяет стиль ко всем заголовкам h1?",
+          "options": [
+            ".h1",
+            "#h1",
+            "h1",
+            "*h1"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 7,
+          "question": "Как подключить внешний файл стилей?",
+          "options": [
+            "<css href='style.css'>",
+            "<link rel='stylesheet' href='style.css'>",
+            "<style src='style.css'>",
+            "<stylesheet href='style.css'>"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 8,
+          "question": "Где можно написать стили внутри самого файла HTML?",
+          "options": [
+            "В теге <head>",
+            "В теге <style>",
+            "В теге <body>",
+            "В теге <css>"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Занятие 4: Блоки и компоновка",
+      "questions": [
+        {
+          "id": 1,
+          "question": "Для чего используется тег <div>?",
+          "options": [
+            "Для создания заголовков",
+            "Для создания контейнера/блока",
+            "Для вставки изображений",
+            "Для создания ссылок"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 2,
+          "question": "Какое свойство задает ширину блока?",
+          "options": [
+            "size",
+            "width",
+            "length",
+            "dimension"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 3,
+          "question": "Какое свойство задает высоту блока?",
+          "options": [
+            "height",
+            "size",
+            "length",
+            "depth"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        },
+        {
+          "id": 4,
+          "question": "Что такое 'padding'?",
+          "options": [
+            "Внешний отступ от блока",
+            "Внутренний отступ внутри блока",
+            "Размер рамки",
+            "Прозрачность блока"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 5,
+          "question": "Что такое 'margin'?",
+          "options": [
+            "Внутренний отступ",
+            "Внешний отступ от блока",
+            "Размер шрифта",
+            "Цвет фона"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 6,
+          "question": "Какое свойство добавляет рамку вокруг блока?",
+          "options": [
+            "outline",
+            "border",
+            "frame",
+            "edge"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 7,
+          "question": "Как центрировать блок по горизонтали?",
+          "options": [
+            "margin: center",
+            "margin: auto",
+            "align: center",
+            "text-align: center"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 8,
+          "question": "Если у блока ширина 200px, padding 20px, border 5px, какая будет общая ширина?",
+          "options": [
+            "200px",
+            "240px",
+            "250px",
+            "260px"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Занятие 5: Навигация и меню",
+      "questions": [
+        {
+          "id": 1,
+          "question": "Как создать многостраничный сайт?",
+          "options": [
+            "Сделать один большой файл",
+            "Создать несколько файлов .html",
+            "Использовать только один файл",
+            "Написать код в блокноте"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 2,
+          "question": "Какой тег используется для создания нумерованного списка?",
+          "options": [
+            "<ul>",
+            "<ol>",
+            "<li>",
+            "<list>"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 3,
+          "question": "Какой тег используется для создания ненумерованного списка?",
+          "options": [
+            "<ul>",
+            "<ol>",
+            "<li>",
+            "<menu>"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        },
+        {
+          "id": 4,
+          "question": "Какой тег создает элемент списка?",
+          "options": [
+            "<list>",
+            "<item>",
+            "<li>",
+            "<element>"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 5,
+          "question": "Как правильно сделать ссылку на другую страницу своего сайта?",
+          "options": [
+            "<a href='https://google.com'>",
+            "<a href='about.html'>",
+            "<a src='about.html'>",
+            "<link href='about.html'>"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 6,
+          "question": "Какой файл обычно является главной страницей сайта?",
+          "options": [
+            "main.html",
+            "home.html",
+            "index.html",
+            "start.html"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 7,
+          "question": "Как создать горизонтальное меню?",
+          "options": [
+            "Использовать тег <menu>",
+            "Сделать список и стилизовать его через CSS",
+            "Написать ссылки в строку",
+            "Использовать таблицу"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 8,
+          "question": "Какой файл нужен для страницы 'О себе'?",
+          "options": [
+            "about.html",
+            "me.html",
+            "self.html",
+            "info.html"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Занятие 6: Интерактив и эффекты",
+      "questions": [
+        {
+          "id": 1,
+          "question": "Что такое псевдокласс :hover?",
+          "options": [
+            "Эффект при нажатии",
+            "Эффект при наведении мыши",
+            "Эффект при загрузке страницы",
+            "Эффект при фокусе"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 2,
+          "question": "Какой тег создает кнопку?",
+          "options": [
+            "<button>",
+            "<input type='button'>",
+            "<btn>",
+            "Оба варианта: <button> и <input type='button'>"
+          ],
+          "correct_answer": 3,
+          "points": 1
+        },
+        {
+          "id": 3,
+          "question": "Как изменить цвет кнопки при наведении?",
+          "options": [
+            "button:hover { color: red; }",
+            "button.hover { background-color: red; }",
+            "button:hover { background-color: red; }",
+            "button on hover { color: red; }"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 4,
+          "question": "Какое свойство меняет цвет текста ссылки?",
+          "options": [
+            "text-color",
+            "link-color",
+            "color",
+            "href-color"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 5,
+          "question": "Как убрать подчеркивание у ссылки?",
+          "options": [
+            "text-decoration: none;",
+            "underline: none;",
+            "text-underline: none;",
+            "decoration: none;"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        },
+        {
+          "id": 6,
+          "question": "Какой псевдокласс применяется к ссылке, на которую уже кликали?",
+          "options": [
+            ":hover",
+            ":active",
+            ":visited",
+            ":focus"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        },
+        {
+          "id": 7,
+          "question": "Как сделать кнопку закругленной?",
+          "options": [
+            "border-radius: 10px;",
+            "corner-radius: 10px;",
+            "border: round;",
+            "shape: round;"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        },
+        {
+          "id": 8,
+          "question": "Как изменить курсор мыши при наведении на ссылку?",
+          "options": [
+            "cursor: pointer;",
+            "mouse: hand;",
+            "cursor: hand;",
+            "pointer: cursor;"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Занятие 7: Адаптивность и завершение дизайна",
+      "questions": [
+        {
+          "id": 1,
+          "question": "Для чего нужен метатег viewport?",
+          "options": [
+            "Для подключения стилей",
+            "Чтобы сайт корректно отображался на мобильных устройствах",
+            "Для добавления иконки сайта",
+            "Для ускорения загрузки"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 2,
+          "question": "Как правильно добавить метатег viewport?",
+          "options": [
+            "<meta viewport='width=device-width'>",
+            "<meta name='viewport' content='width=device-width, initial-scale=1.0'>",
+            "<viewport width='device-width'>",
+            "<meta content='viewport'>"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 3,
+          "question": "Что означает единица измерения '%'?",
+          "options": [
+            "Пиксели",
+            "Проценты от родительского элемента",
+            "Сантиметры",
+            "Эм-единицы"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 4,
+          "question": "Как сделать изображение адаптивным?",
+          "options": [
+            "width: 100%;",
+            "max-width: 100%;",
+            "responsive: true;",
+            "img-fluid: true;"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 5,
+          "question": "Что такое адаптивный дизайн?",
+          "options": [
+            "Дизайн, который меняется в зависимости от устройства",
+            "Красивый дизайн",
+            "Дизайн с анимациями",
+            "Простой дизайн"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        },
+        {
+          "id": 6,
+          "question": "Какой инструмент помогает подобрать цвета для сайта?",
+          "options": [
+            "Google",
+            "Coolors.co",
+            "Wikipedia",
+            "YouTube"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 7,
+          "question": "Что такое цветовая палитра?",
+          "options": [
+            "Набор красок для рисования",
+            "Набор гармонично сочетающихся цветов",
+            "Программа для редактирования фото",
+            "Тип шрифта"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 8,
+          "question": "Как проверить, как сайт выглядит на телефоне?",
+          "options": [
+            "Открыть на реальном телефоне",
+            "Использовать инструменты разработчика в браузере",
+            "Оба варианта",
+            "Невозможно проверить"
+          ],
+          "correct_answer": 2,
+          "points": 1
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Занятие 8: Финальная презентация и публикация",
+      "questions": [
+        {
+          "id": 1,
+          "question": "Для чего нужна валидация кода?",
+          "options": [
+            "Для проверки на ошибки",
+            "Для ускорения сайта",
+            "Для добавления стилей",
+            "Для создания резервной копии"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        },
+        {
+          "id": 2,
+          "question": "Какой сайт проверяет правильность HTML-кода?",
+          "options": [
+            "google.com",
+            "validator.w3.org",
+            "github.com",
+            "wikipedia.org"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 3,
+          "question": "Что такое архивирование проекта?",
+          "options": [
+            "Удаление старых файлов",
+            "Сжатие всех файлов в один архив (.zip)",
+            "Перемещение файлов в корзину",
+            "Создание резервной копии на облаке"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 4,
+          "question": "Какой формат архива самый распространенный?",
+          "options": [
+            ".rar",
+            ".zip",
+            ".7z",
+            ".tar"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 5,
+          "question": "Что такое GitHub Pages?",
+          "options": [
+            "Сервис для хранения кода",
+            "Бесплатный хостинг для публикации сайтов",
+            "Редактор кода",
+            "Социальная сеть для программистов"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 6,
+          "question": "Что нужно для публикации сайта на GitHub Pages?",
+          "options": [
+            "Аккаунт на GitHub",
+            "Деньги",
+            "Специальный сертификат",
+            "Ничего не нужно"
+          ],
+          "correct_answer": 0,
+          "points": 1
+        },
+        {
+          "id": 7,
+          "question": "Что важно показать при презентации своего сайта?",
+          "options": [
+            "Только код",
+            "Как сайт выглядит и работает",
+            "Сколько времени потрачено",
+            "Только красивые картинки"
+          ],
+          "correct_answer": 1,
+          "points": 1
+        },
+        {
+          "id": 8,
+          "question": "Какой из этих сайтов НЕ подходит для финального проекта?",
+          "options": [
+            "Фан-сайт про любимую игру",
+            "Сайт-портфолио с рисунками",
+            "Сайт с рецептами",
+            "Сайт без текста и изображений"
+          ],
+          "correct_answer": 3,
+          "points": 1
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тестирование учеников</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎓 Тестирование знаний</h1>
+            <p class="subtitle">Проверка работ учеников во время урока</p>
+        </header>
+
+        <!-- Экран выбора урока -->
+        <div id="welcome-screen" class="screen active">
+            <div class="welcome-content">
+                <h2>📚 Выберите урок для тестирования</h2>
+                <p class="subtitle">Проверь свои знания по каждому занятию!</p>
+                
+                <div id="lessons-list" class="lessons-list">
+                    <!-- Уроки будут загружаться динамически -->
+                </div>
+                
+                <!-- teacher controls removed -->
+            </div>
+        </div>
+
+        <!-- Экран теста -->
+        <div id="quiz-screen" class="screen">
+            <div class="quiz-header">
+                <div class="progress">
+                    <span id="current-question">1</span> из <span id="total-questions">0</span>
+                </div>
+                <div class="timer" id="timer">00:00</div>
+            </div>
+
+            <div id="question-container" class="question-container">
+                <!-- Вопросы будут загружаться динамически -->
+            </div>
+
+            <div class="quiz-controls">
+                <button id="prev-btn" class="btn btn-secondary" disabled>Назад</button>
+                <button id="next-btn" class="btn btn-primary">Далее</button>
+                <button id="submit-btn" class="btn btn-success" style="display: none;">Завершить тест</button>
+            </div>
+        </div>
+
+        <!-- Экран результатов -->
+        <div id="results-screen" class="screen">
+            <div class="results-content">
+                <h2>📊 Результаты теста</h2>
+                <div class="score-display">
+                    <span id="score">0</span> из <span id="total">0</span>
+                    (<span id="percentage">0</span>%)
+                </div>
+                <div class="grade" id="grade">Оценка: -</div>
+                
+                <div id="detailed-results" class="detailed-results">
+                    <!-- Детальные результаты будут здесь -->
+                </div>
+
+                <button id="restart-btn" class="btn btn-primary">Выбрать другой урок</button>
+            </div>
+        </div>
+
+        <!-- Add-question modal removed -->
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

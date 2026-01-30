@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 Дашборд - Мониторинг тестов</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Шапка -->
+        <header class="dashboard-header">
+            <div class="header-content">
+                <h1>🎓 Дашборд преподавателя</h1>
+                <div class="header-info">
+                    <span class="last-update">Последнее обновление: <span id="last-update-time">-</span></span>
+                    <button id="refresh-btn" class="btn-refresh" title="Обновить данные">
+                        <span class="refresh-icon">⟳</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Основной контент -->
+        <main class="dashboard-main">
+            <!-- Верхняя строка статистики -->
+            <div class="stats-grid">
+                <div class="stat-card stat-card--active">
+                    <div class="stat-icon">👥</div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="active-count">0</div>
+                        <div class="stat-label">Активных сессий</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card stat-card--completed">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="completed-count">0</div>
+                        <div class="stat-label">Завершено тестов</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card stat-card--average">
+                    <div class="stat-icon">⭐</div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="average-score">0%</div>
+                        <div class="stat-label">Средний результат</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card stat-card--time">
+                    <div class="stat-icon">⏱️</div>
+                    <div class="stat-content">
+                        <div class="stat-value" id="average-time">0</div>
+                        <div class="stat-label">Среднее время (сек)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Оценки -->
+            <div class="grades-grid">
+                <div class="grade-card grade-card--excellent">
+                    <div class="grade-icon">5️⃣</div>
+                    <div class="grade-content">
+                        <div class="grade-value" id="grade-excellent">0</div>
+                        <div class="grade-label">Отлично (90%+)</div>
+                    </div>
+                </div>
+                
+                <div class="grade-card grade-card--good">
+                    <div class="grade-icon">4️⃣</div>
+                    <div class="grade-content">
+                        <div class="grade-value" id="grade-good">0</div>
+                        <div class="grade-label">Хорошо (75-89%)</div>
+                    </div>
+                </div>
+                
+                <div class="grade-card grade-card--satisfactory">
+                    <div class="grade-icon">3️⃣</div>
+                    <div class="grade-content">
+                        <div class="grade-value" id="grade-satisfactory">0</div>
+                        <div class="grade-label">Удовл. (60-74%)</div>
+                    </div>
+                </div>
+                
+                <div class="grade-card grade-card--unsatisfactory">
+                    <div class="grade-icon">2️⃣</div>
+                    <div class="grade-content">
+                        <div class="grade-value" id="grade-unsatisfactory">0</div>
+                        <div class="grade-label">Неудовл. (<60%)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Активные сессии и недавние тесты -->
+            <div class="content-grid">
+                <!-- Активные сессии -->
+                <div class="panel panel--active">
+                    <div class="panel-header">
+                        <h2>👥 Активные сессии</h2>
+                        <span class="panel-count" id="active-sessions-count">0</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="active-sessions-container" class="sessions-list">
+                            <div class="empty-state">
+                                <div class="empty-icon">😴</div>
+                                <p>Нет активных сессий</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Недавние тесты -->
+                <div class="panel panel--recent">
+                    <div class="panel-header">
+                        <h2>📋 Недавние тесты</h2>
+                        <span class="panel-count" id="recent-tests-count">0</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="recent-tests-container" class="tests-list">
+                            <div class="empty-state">
+                                <div class="empty-icon">📝</div>
+                                <p>Еще нет завершенных тестов</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Статистика по урокам -->
+            <div class="panel panel--lessons">
+                <div class="panel-header">
+                    <h2>📚 Статистика по урокам</h2>
+                </div>
+                <div class="panel-body">
+                    <div id="lessons-stats-container" class="lessons-grid">
+                        <div class="empty-state">
+                            <div class="empty-icon">📊</div>
+                            <p>Нет данных</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

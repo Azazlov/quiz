@@ -1,5 +1,6 @@
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 import hashlib
+import re
 import json
 import dotenv
 import os
@@ -53,7 +54,9 @@ def build_lessons_from_file(file_path):
         for l in lessons_arr:
             # Берем имя урока из JSON, если его нет — генерируем по ID
             name = l.get('name') or f"Занятие {l.get('id')}"
-            new_lessons.append({'id': l.get('id'), 'name': name})
+            # поддержка флага доступности урока
+            available = l.get('available', True)
+            new_lessons.append({'id': l.get('id'), 'name': name, 'available': available})
         
         if new_lessons:
             LESSONS = new_lessons
@@ -74,7 +77,7 @@ def build_lessons_from_file(file_path):
         if unique_sources:
             new_lessons = []
             for i, src in enumerate(unique_sources, start=1):
-                new_lessons.append({'id': i, 'name': f"Занятие {i}: {src}"})
+                new_lessons.append({'id': i, 'name': f"Занятие {i}: {src}", 'available': True})
             LESSONS = new_lessons
             print(f"[INFO] Уроки построены по _source: {len(LESSONS)} шт.")
             return
@@ -91,7 +94,7 @@ def build_lessons_from_file(file_path):
                 lessons_count = 4
 
         # Построим LESSONS с именами "Занятие N"
-        new_lessons = [{'id': i, 'name': f"Занятие {i}"} for i in range(1, lessons_count + 1)]
+        new_lessons = [{'id': i, 'name': f"Занятие {i}", 'available': True} for i in range(1, lessons_count + 1)]
         LESSONS = new_lessons
         print(f"[INFO] Уроки построены из плоского списка: {len(LESSONS)} шт.")
         return
@@ -104,6 +107,30 @@ sessions = {}
 
 # Хранилище завершенных тестов
 completed_tests = []
+
+# IP name mapping (persistent)
+IP_NAMES_FILE = 'ip_names.json'
+IP_NAMES = {}
+
+def load_ip_names(path=IP_NAMES_FILE):
+    global IP_NAMES
+    if not os.path.exists(path):
+        IP_NAMES = {}
+        return
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            IP_NAMES = json.load(f)
+        print(f"[INFO] Загружено имён IP: {len(IP_NAMES)}")
+    except Exception as e:
+        print(f"[WARN] Не удалось загрузить {path}: {e}")
+        IP_NAMES = {}
+
+def save_ip_names(path=IP_NAMES_FILE):
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(IP_NAMES, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[WARN] Не удалось сохранить {path}: {e}")
 
 LOG_FILE = 'logs.txt'
 
@@ -235,6 +262,7 @@ def merge_test_files(selected_paths, out_filename):
     out_path = os.path.join('tests', out_filename)
     payload = {
         'title': out_filename,
+        'available': True,
         'lessons': lessons_payload,
         'questions': merged_questions
     }
@@ -393,7 +421,84 @@ def logout():
 
 @app.route('/api/lessons', methods=['GET'])
 def get_lessons():
-    return jsonify(LESSONS)
+    # Ensure each lesson has 'available' flag
+    out = []
+    for l in LESSONS:
+        copy = dict(l)
+        if 'available' not in copy:
+            copy['available'] = True
+        out.append(copy)
+    return jsonify(out)
+
+
+@app.route('/api/lessons/availability', methods=['POST'])
+def set_lesson_availability():
+    # Only admin can toggle availability
+    if not session.get('admin'):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    data = request.get_json() or {}
+    lesson_id = data.get('lesson_id')
+    available = data.get('available')
+    if lesson_id is None or available is None:
+        return jsonify({'success': False, 'error': 'Missing lesson_id or available'}), 400
+
+    updated = False
+    for l in LESSONS:
+        if l.get('id') == lesson_id:
+            l['available'] = bool(available)
+            updated = True
+            break
+
+    if not updated:
+        return jsonify({'success': False, 'error': 'Lesson not found'}), 404
+
+    # Persist availability into the selected merged file if present
+    try:
+        if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
+            with open(SELECTED_TEST_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if 'lessons' in data:
+                for item in data['lessons']:
+                    if item.get('id') == lesson_id:
+                        item['available'] = bool(available)
+                        break
+                try:
+                    with open(SELECTED_TEST_FILE, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    print(f"[WARN] Не удалось обновить {SELECTED_TEST_FILE}: {e}")
+
+    except Exception as e:
+        print(f"[WARN] Ошибка при попытке сохранить доступность в {SELECTED_TEST_FILE}: {e}")
+
+    return jsonify({'success': True, 'lessons': LESSONS})
+
+
+@app.route('/api/ip_names', methods=['GET', 'POST'])
+def api_ip_names():
+    # Admin-only for setting names
+    if request.method == 'GET':
+        return jsonify(IP_NAMES)
+
+    # POST
+    if not session.get('admin'):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    data = request.get_json() or {}
+    ip = data.get('ip')
+    name = data.get('name')
+    if not ip:
+        return jsonify({'success': False, 'error': 'Missing ip'}), 400
+
+    if name is None:
+        # delete name
+        IP_NAMES.pop(ip, None)
+    else:
+        IP_NAMES[ip] = str(name)
+
+    save_ip_names()
+    return jsonify({'success': True, 'ip_names': IP_NAMES})
 
 @app.route('/api/questions/<int:lesson_id>', methods=['GET'])
 def get_questions(lesson_id):
@@ -446,23 +551,37 @@ def start_session():
         student_name = data.get('student_name', 'Ученик')
         lesson_id = data.get('lesson_id', 1)
         
+        # Проверяем доступность урока
+        lesson_entry = None
+        for l in LESSONS:
+            if l.get('id') == lesson_id:
+                lesson_entry = l
+                break
+
+        if lesson_entry and lesson_entry.get('available') is False:
+            return jsonify({'success': False, 'error': 'Урок временно недоступен'}), 403
+
         # Генерация уникального ID сессии
         session_id = str(uuid.uuid4())[:8]
-        
+
         # Determine lesson name/file: prefer SELECTED_TEST_FILE if set
         if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
             lesson_file = SELECTED_TEST_FILE
             # keep lesson number/name from LESSONS so UI shows the lesson number
             try:
-                lesson_name = LESSONS[lesson_id - 1]['name']
+                lesson_name = lesson_entry['name'] if lesson_entry else os.path.splitext(os.path.basename(lesson_file))[0]
             except Exception:
                 lesson_name = os.path.splitext(os.path.basename(lesson_file))[0]
             stored_lesson_id = lesson_id
         else:
             lesson_file = None
             # keep behaviour for numeric lessons
-            lesson_name = LESSONS[lesson_id - 1]['name']
+            lesson_name = lesson_entry['name'] if lesson_entry else f"Занятие {lesson_id}"
             stored_lesson_id = lesson_id
+
+        # capture client IP and start timestamp
+        client_ip = request.remote_addr
+        start_ts = datetime.now().isoformat()
 
         # Сохранение информации о сессии
         sessions[session_id] = {
@@ -471,7 +590,9 @@ def start_session():
             'lesson_file': lesson_file,
             'lesson_name': lesson_name,
             'start_time': time.time(),
-            'start_timestamp': datetime.now().isoformat(),
+            'start_timestamp': start_ts,
+            'ip': client_ip,
+            'device_id': data.get('device_id'),
             'questions_answered': 0,
             'correct_answers': 0,
             'current_question': 1,
@@ -569,9 +690,14 @@ def get_sessions():
             continue
             
         active_sessions.append({
-            'session_id': sid,
-            'student_name': data['student_name'],
             'lesson_name': data['lesson_name'],
+            'lesson_id': data['lesson_id'],
+            'ip': data.get('ip'),
+            'ip_name': IP_NAMES.get(data.get('ip')) if data.get('ip') else None,
+            'device_id': data.get('device_id'),
+            'start_timestamp': data.get('start_timestamp'),
+            'ip': data.get('ip'),
+            'start_timestamp': data.get('start_timestamp'),
             'elapsed_time': elapsed,
             'questions_answered': data.get('questions_answered', 0),
             'correct_answers': data.get('correct_answers', 0),
@@ -617,6 +743,7 @@ def get_dashboard_stats():
             'student_name': data['student_name'],
             'lesson_name': data['lesson_name'],
             'lesson_id': data['lesson_id'],
+            'ip': data.get('ip'),
             'elapsed_time': elapsed,
             'elapsed_time_formatted': f"{elapsed // 60}:{elapsed % 60:02d}",
             'questions_answered': data.get('questions_answered', 0),
@@ -646,6 +773,27 @@ def get_dashboard_stats():
         if lid in lesson_stats:
             lesson_stats[lid]['completed_count'] += 1
             lesson_stats[lid]['total_points'] += test['percentage']
+
+    # Группировка по IP для дашборда
+    ip_groups = {}
+    for s in active_sessions:
+        ip = s.get('ip') or 'unknown'
+        ip_groups.setdefault(ip, {'ip': ip, 'active_sessions': [], 'total_active': 0})
+        ip_groups[ip]['active_sessions'].append(s)
+        ip_groups[ip]['total_active'] = len(ip_groups[ip]['active_sessions'])
+
+    # недавние тесты по IP
+    recent_by_ip = {}
+    for t in completed_tests[-200:]:
+        ip = t.get('ip') or 'unknown'
+        recent_by_ip.setdefault(ip, [])
+        recent_by_ip[ip].append(t)
+
+    # enrich recent_tests with ip_name and device_id
+    for rt in recent_tests:
+        ip = rt.get('ip')
+        rt['ip_name'] = IP_NAMES.get(ip) if ip else None
+        rt['device_id'] = rt.get('device_id') or None
     
     for lid, stats in lesson_stats.items():
         if stats['completed_count'] > 0:
@@ -675,6 +823,8 @@ def get_dashboard_stats():
         'active_sessions': active_sessions,
         'recent_tests': recent_tests,
         'lesson_stats': list(lesson_stats.values()),
+        'ip_groups': list(ip_groups.values()),
+        'recent_by_ip': recent_by_ip,
         'total_stats': {
             'total_completed': total_completed,
             'total_active': total_active,
@@ -776,6 +926,7 @@ def submit_answers():
                 'student_name': student_name,
                 'lesson_id': sessions[session_id]['lesson_id'],
                 'lesson_name': sessions[session_id]['lesson_name'],
+                    'device_id': sessions[session_id].get('device_id'),
                 'score': score,
                 'total': total_questions,
                 'percentage': round(percentage, 2),
@@ -783,7 +934,9 @@ def submit_answers():
                 'elapsed_time': elapsed_time,
                 'elapsed_time_formatted': f"{elapsed_time // 60}:{elapsed_time % 60:02d}",
                 'timestamp': datetime.now().strftime('%H:%M:%S'),
-                'date': datetime.now().strftime('%Y-%m-%d')
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'ip': sessions[session_id].get('ip'),
+                'start_time': sessions[session_id].get('start_timestamp')
             }
             completed_tests.append(record)
             try:
@@ -810,16 +963,21 @@ def submit_answers():
 
 
 if __name__ == '__main__':
-    # При запуске — предложим интерактивно выбрать/объединить файлы тестов (если TTY)
+    # При запуске — предложим интерактивно выбрать/объединить файлы тестов (если TTY).
+    # Avoid running twice when Flask debug reloader is enabled by running
+    # the selector only in the reloader child or when no reloader is present.
     try:
-        created = interactive_test_selector()
-        if created:
-            print(f"Объединённый файл создан: tests/{created}")
-        # Rebuild LESSONS from the selected file (if any)
-        if SELECTED_TEST_FILE:
-            build_lessons_from_file(SELECTED_TEST_FILE)
-        # Load persisted completed tests from logs.txt
-        load_logs()
+        should_run_selector = (os.environ.get('WERKZEUG_RUN_MAIN') == 'true') or ('WERKZEUG_RUN_MAIN' not in os.environ)
+        if should_run_selector:
+            created = interactive_test_selector()
+            if created:
+                print(f"Объединённый файл создан: tests/{created}")
+            # Rebuild LESSONS from the selected file (if any)
+            if SELECTED_TEST_FILE:
+                build_lessons_from_file(SELECTED_TEST_FILE)
+            # Load persisted completed tests from logs.txt and ip names
+            load_logs()
+            load_ip_names()
     except Exception:
         # не мешаем запуску сервера в случае ошибок в селекторе
         pass
@@ -828,9 +986,9 @@ if __name__ == '__main__':
     print(f"{Fore.CYAN}📚 Доступные уроки:")
     for lesson in LESSONS:
         print(f"   {lesson['id']}. {lesson['name']}")
-    print(f"\n{Fore.YELLOW}📡 Сервер запущен: {Fore.WHITE + Style.BRIGHT}http://localhost:5000")
-    print(f"{Fore.YELLOW}📊 Дашборд: {Fore.WHITE + Style.BRIGHT}http://localhost:5000/dashboard")
-    print(f"{Fore.YELLOW}📈 API статистики: {Fore.WHITE + Style.BRIGHT}http://localhost:5000/api/dashboard/stats")
+    print(f"\n{Fore.YELLOW}📡 Сервер запущен: {Fore.WHITE + Style.BRIGHT}http://localhost:8000")
+    print(f"{Fore.YELLOW}📊 Дашборд: {Fore.WHITE + Style.BRIGHT}http://localhost:8000/dashboard")
+    print(f"{Fore.YELLOW}📈 API статистики: {Fore.WHITE + Style.BRIGHT}http://localhost:8000/api/dashboard/stats")
     print(f"\n{Fore.GREEN + Style.BRIGHT}{'─'*80}\n")
     
     app.run(debug=True, host='0.0.0.0', port=8000)

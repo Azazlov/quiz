@@ -311,6 +311,28 @@ body {
     border-left: 4px solid #667eea;
 }
 
+/* IP groups */
+.ip-groups-list { display: flex; flex-direction: column; gap: 12px; }
+.ip-group { background: #f8f9fa; border-radius: 10px; padding: 12px; border-left: 4px solid #9C27B0; }
+.ip-group-header { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.ip-badge { background:#eee; padding:6px 10px; border-radius:8px; font-weight:700; }
+.ip-count { color:#666; font-size:0.9em }
+.ip-group-body { display:flex; flex-direction:column; gap:6px }
+.ip-session { display:flex; gap:12px; align-items:center; padding:6px; background:#fff; border-radius:6px }
+.ip-session-name { font-weight:600 }
+.ip-session-lesson { color:#666; font-size:0.9em }
+.ip-session-time { margin-left:auto; background:#e3f2fd; padding:3px 8px; border-radius:12px }
+
+/* Lesson controls */
+.lesson-control { display:flex; align-items:center; justify-content:space-between; gap:12px; background:#f8f9fa; padding:12px; border-radius:8px }
+.lesson-control .lesson-title { font-weight:600 }
+.lesson-control .btn { background:#667eea; color:white; border:none; padding:8px 12px; border-radius:8px; cursor:pointer }
+.lesson-disabled { opacity:0.6; }
+
+/* Disabled lessons on index */
+.lesson-unavailable { opacity:0.45; pointer-events:none; }
+.lesson-unavailable .locked { color:#d32f2f; font-size:0.85em; margin-left:8px }
+
 .lesson-header {
     display: flex;
     justify-content: space-between;

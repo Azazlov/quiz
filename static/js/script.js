@@ -73,11 +73,16 @@ async loadLessons() {
             const lessonCard = document.createElement('div');
             lessonCard.className = 'lesson-card';
             // Используем только имя из JSON, так как там уже может быть написано "Занятие 1"
+            const disabled = lesson.available === false;
             lessonCard.innerHTML = `
                 <div class="lesson-number">#${lesson.id}</div>
-                <h3>${lesson.name}</h3>
+                <h3>${lesson.name}${disabled ? ' <span class="locked">(Недоступен)</span>' : ''}</h3>
             `;
-            lessonCard.addEventListener('click', () => this.startQuiz(lesson.id));
+            if (!disabled) {
+                lessonCard.addEventListener('click', () => this.startQuiz(lesson.id));
+            } else {
+                lessonCard.classList.add('lesson-unavailable');
+            }
             lessonsList.appendChild(lessonCard);
         });
     } catch (error) {
@@ -97,6 +102,14 @@ async loadLessons() {
         this.currentLessonId = lessonId;
         
         try {
+            // Ensure device_id exists and include it so server can persist a device-unique id
+            let deviceId = localStorage.getItem('device_id');
+            if (!deviceId) {
+                // generate simple random id
+                deviceId = Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b => b.toString(16).padStart(2,'0')).join('');
+                localStorage.setItem('device_id', deviceId);
+            }
+
             // Создание сессии на сервере
             const response = await fetch('/api/start_session', {
                 method: 'POST',
@@ -105,7 +118,8 @@ async loadLessons() {
                 },
                 body: JSON.stringify({
                     student_name: this.studentName,
-                    lesson_id: lessonId
+                    lesson_id: lessonId,
+                    device_id: deviceId
                 })
             });
             

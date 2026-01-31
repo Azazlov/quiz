@@ -27,6 +27,20 @@
     background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
 }
 
+/* Disabled / unavailable lessons: darker, no hover effects, clearly visible as disabled */
+.lesson-card.lesson-unavailable {
+    background: linear-gradient(135deg, #2f2f2f 0%, #1f1f1f 100%);
+    color: #ddd;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.4) inset;
+    opacity: 0.95;
+}
+
+.lesson-card.lesson-unavailable:hover {
+    transform: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.4) inset;
+    background: linear-gradient(135deg, #2f2f2f 0%, #1f1f1f 100%);
+}
+
 .lesson-card h3 {
     font-size: 1.1em;
     margin-bottom: 10px;

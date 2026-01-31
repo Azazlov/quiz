@@ -1,3 +1,5 @@
+import { shuffleArray, escapeHtml, shuffleQuestionOptions } from './modules/utils.js';
+
 class QuizApp {
     constructor() {
         this.questions = [];
@@ -20,39 +22,7 @@ class QuizApp {
         this.setupEventListeners();
     }
     
-    // Функция для перемешивания массива (алгоритм Фишера-Йейтса)
-    shuffleArray(array) {
-        const shuffled = [...array];
-        for (let i = shuffled.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-        }
-        return shuffled;
-    }
-    
-    // Функция для перемешивания вариантов ответа с сохранением маппинга
-    shuffleQuestionOptions(question) {
-        // Создаем массив с вариантами и их оригинальными индексами
-        const optionsWithIndex = question.options.map((option, index) => ({
-            text: option,
-            originalIndex: index
-        }));
-        
-        // Перемешиваем варианты
-        const shuffled = this.shuffleArray(optionsWithIndex);
-        
-        // Находим новый индекс правильного ответа
-        const newCorrectIndex = shuffled.findIndex(
-            opt => opt.originalIndex === question.correct_answer
-        );
-        
-        return {
-            ...question,
-            shuffledOptions: shuffled.map(opt => opt.text),
-            optionMapping: shuffled.map(opt => opt.originalIndex),
-            shuffledCorrectAnswer: newCorrectIndex
-        };
-    }
+    // helper functions are imported from modules/utils.js
     
 async loadLessons() {
     try {
@@ -147,12 +117,12 @@ async loadLessons() {
             if (questions.length > 0) {
                 // 1. Перемешиваем ПОРЯДОК вопросов
                 const indices = Array.from({length: questions.length}, (_, i) => i);
-                this.questionOrderMap = this.shuffleArray(indices);
+                this.questionOrderMap = shuffleArray(indices);
                 
                 // 2. Для каждого вопроса в новом порядке перемешиваем ВАРИАНТЫ ответов
                 this.shuffledQuestions = this.questionOrderMap.map(originalIndex => {
                     const question = questions[originalIndex];
-                    return this.shuffleQuestionOptions(question);
+                    return shuffleQuestionOptions(question);
                 });
                 
                 this.questions = questions;
@@ -437,14 +407,7 @@ async loadLessons() {
     }
     
     escapeHtml(text) {
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return text.replace(/[&<>"']/g, m => map[m] || m);
+        return escapeHtml(text);
     }
     
     calculateGrade(percentage) {

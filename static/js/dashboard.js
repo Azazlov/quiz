@@ -1,3 +1,5 @@
+import { escapeHtml, formatTimestamp } from './modules/utils.js';
+
 class Dashboard {
     constructor() {
         this.updateInterval = null;
@@ -67,7 +69,7 @@ class Dashboard {
         container.innerHTML = ipGroups.map(group => {
             const sessionsHtml = (group.active_sessions || []).map(s => `
                 <div class="ip-session">
-                    <div class="ip-session-name">${this.escapeHtml(s.student_name)}</div>
+                    <div class="ip-session-name">${this.escapeHtml(s.student_name)}${s.ip_name ? ' (' + this.escapeHtml(s.ip_name) + ')' : ''}</div>
                     <div class="ip-session-lesson">${this.escapeHtml(s.lesson_name)}</div>
                     <div class="ip-session-time">${this.escapeHtml(s.elapsed_time_formatted)}</div>
                 </div>
@@ -194,13 +196,13 @@ class Dashboard {
         container.innerHTML = sessions.map(session => `
             <div class="session-item">
                 <div class="session-header">
-                    <span class="session-name">${this.escapeHtml(session.student_name)}</span>
+                    <span class="session-name">${this.escapeHtml(session.student_name)}${session.ip_name ? ' (' + this.escapeHtml(session.ip_name) + ')' : ''}</span>
                     <span class="session-device">Device: ${this.escapeHtml(session.device_id || session.session_id)}</span>
                     <span class="session-time">${session.elapsed_time_formatted}</span>
                 </div>
                 <div class="session-info">
                     <div class="session-lesson">${this.escapeHtml(session.lesson_name)}</div>
-                    <div class="session-meta">IP: ${this.escapeHtml(session.ip || 'unknown')} • Started: ${this.escapeHtml(this.formatTimestamp(session.start_timestamp || session.start_time))}</div>
+                    <div class="session-meta">IP: ${this.escapeHtml(session.ip || 'unknown')} • Started: ${this.escapeHtml(formatTimestamp(session.start_timestamp || session.start_time))}</div>
                     <div class="session-progress">
                         <span>${session.questions_answered}/${session.total_questions}</span>
                         <div class="progress-bar">
@@ -237,9 +239,9 @@ class Dashboard {
             return `
                 <div class="test-item">
                     <div class="test-header">
-                        <span class="test-name">${this.escapeHtml(test.student_name)}</span>
+                        <span class="test-name">${this.escapeHtml(test.student_name)}${test.ip_name ? ' (' + this.escapeHtml(test.ip_name) + ')' : ''}</span>
                         <span class="test-id">ID: ${this.escapeHtml(test.id || '')}</span>
-                        <span class="test-time">${this.escapeHtml(this.formatTimestamp(test.timestamp || ''))}</span>
+                        <span class="test-time">${this.escapeHtml(formatTimestamp(test.timestamp || ''))}</span>
                     </div>
                     <div class="test-info">
                         <div class="test-lesson">${this.escapeHtml(test.lesson_name)}</div>
@@ -294,27 +296,10 @@ class Dashboard {
         document.getElementById('last-update-time').textContent = timeString;
     }
 
-    formatTimestamp(ts) {
-        if (!ts) return '';
-        try {
-            const d = new Date(ts);
-            return d.toLocaleString('ru-RU', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
-        } catch (e) {
-            return ts;
-        }
-    }
+    // Using shared formatter from utils module
     
     escapeHtml(text) {
-        if (text === null || text === undefined) return '';
-        text = String(text);
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return text.replace(/[&<>"']/g, m => map[m] || m);
+        return escapeHtml(text);
     }
 }
 

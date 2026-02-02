@@ -747,6 +747,7 @@ def get_dashboard_stats():
             'elapsed_time': elapsed,
             'elapsed_time_formatted': f"{elapsed // 60}:{elapsed % 60:02d}",
             'questions_answered': data.get('questions_answered', 0),
+            'start_timestamp ': data.get('start_timestamp'),
             'correct_answers': data.get('correct_answers', 0),
             'total_questions': total_questions,
             'progress': round(progress, 1),

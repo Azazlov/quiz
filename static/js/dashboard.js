@@ -192,8 +192,8 @@ class Dashboard {
             `;
             return;
         }
-        
         container.innerHTML = sessions.map(session => `
+            ${session.start_timestamp}
             <div class="session-item">
                 <div class="session-header">
                     <span class="session-name">${this.escapeHtml(session.student_name)}${session.ip_name ? ' (' + this.escapeHtml(session.ip_name) + ')' : ''}</span>
@@ -202,7 +202,7 @@ class Dashboard {
                 </div>
                 <div class="session-info">
                     <div class="session-lesson">${this.escapeHtml(session.lesson_name)}</div>
-                    <div class="session-meta">IP: ${this.escapeHtml(session.ip || 'unknown')} • Started: ${this.escapeHtml(formatTimestamp(session.start_timestamp || session.start_time))}</div>
+                    <div class="session-meta">IP: ${this.escapeHtml(session.ip || 'unknown')} • Started: ${this.escapeHtml(formatTimestamp(session.start_timestamp))}</div>
                     <div class="session-progress">
                         <span>${session.questions_answered}/${session.total_questions}</span>
                         <div class="progress-bar">
@@ -241,7 +241,7 @@ class Dashboard {
                     <div class="test-header">
                         <span class="test-name">${this.escapeHtml(test.student_name)}${test.ip_name ? ' (' + this.escapeHtml(test.ip_name) + ')' : ''}</span>
                         <span class="test-id">ID: ${this.escapeHtml(test.id || '')}</span>
-                        <span class="test-time">${this.escapeHtml(formatTimestamp(test.timestamp || ''))}</span>
+                        <span class="test-time">${test.timestamp}</span>
                     </div>
                     <div class="test-info">
                         <div class="test-lesson">${this.escapeHtml(test.lesson_name)}</div>

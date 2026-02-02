@@ -11,3 +11,4 @@ venv/
 venv.bak/
 *.sqlite3
 ip_names.json
+conspects

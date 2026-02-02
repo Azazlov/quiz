@@ -927,7 +927,7 @@ def submit_answers():
                 'student_name': student_name,
                 'lesson_id': sessions[session_id]['lesson_id'],
                 'lesson_name': sessions[session_id]['lesson_name'],
-                    'device_id': sessions[session_id].get('device_id'),
+                'device_id': sessions[session_id].get('device_id'),
                 'score': score,
                 'total': total_questions,
                 'percentage': round(percentage, 2),
@@ -969,16 +969,16 @@ if __name__ == '__main__':
     # the selector only in the reloader child or when no reloader is present.
     try:
         should_run_selector = (os.environ.get('WERKZEUG_RUN_MAIN') == 'true') or ('WERKZEUG_RUN_MAIN' not in os.environ)
-        if should_run_selector:
-            created = interactive_test_selector()
-            if created:
-                print(f"Объединённый файл создан: tests/{created}")
-            # Rebuild LESSONS from the selected file (if any)
-            if SELECTED_TEST_FILE:
-                build_lessons_from_file(SELECTED_TEST_FILE)
-            # Load persisted completed tests from logs.txt and ip names
-            load_logs()
-            load_ip_names()
+        # if should_run_selector:
+        created = interactive_test_selector()
+        #     if created:
+        #         print(f"Объединённый файл создан: tests/{created}")
+        #     # Rebuild LESSONS from the selected file (if any)
+        #     if SELECTED_TEST_FILE:
+        #         build_lessons_from_file(SELECTED_TEST_FILE)
+        #     # Load persisted completed tests from logs.txt and ip names
+        load_logs()
+        load_ip_names()
     except Exception:
         # не мешаем запуску сервера в случае ошибок в селекторе
         pass

@@ -502,6 +502,174 @@ def api_ip_names():
     save_ip_names()
     return jsonify({'success': True, 'ip_names': IP_NAMES})
 
+@app.route('/api/select_lesson', methods=['POST'])
+def select_lesson():
+    """
+    Выбор урока по названию файла.
+    Принимает: {"lesson_name": "web+css.json"}
+    Возвращает: информацию о выбранном уроке и список уроков
+    """
+    try:
+        data = request.get_json()
+        lesson_name = data.get('lesson_name')
+        
+        if not lesson_name:
+            return jsonify({
+                'success': False,
+                'error': 'Не указано название урока'
+            }), 400
+        
+        # Формируем путь к файлу
+        lesson_path = os.path.join('tests', lesson_name)
+        
+        # Проверяем существование файла
+        if not os.path.exists(lesson_path):
+            return jsonify({
+                'success': False,
+                'error': f'Файл урока не найден: {lesson_name}'
+            }), 404
+        
+        # Обновляем глобальную переменную
+        global SELECTED_TEST_FILE
+        SELECTED_TEST_FILE = lesson_path
+        
+        # Перестраиваем список уроков из выбранного файла
+        build_lessons_from_file(SELECTED_TEST_FILE)
+        
+        # Загружаем сохраненные результаты и имена IP
+        load_logs()
+        load_ip_names()
+        
+        print(f"[INFO] Урок выбран: {lesson_name}")
+        print(f"[INFO] Доступно уроков: {len(LESSONS)}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Урок "{lesson_name}" успешно выбран',
+            'file_path': lesson_path,
+            'lessons_count': len(LESSONS),
+            'lessons': LESSONS
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка выбора урока: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+    
+@app.route('/api/tests/list', methods=['GET'])
+def list_test_files():
+    """
+    Получение списка всех файлов тестов в папке tests/
+    Возвращает: список файлов с метаинформацией
+    """
+    try:
+        tests_dir = 'tests'
+        
+        # Проверяем существование папки
+        if not os.path.exists(tests_dir):
+            return jsonify({
+                'success': False,
+                'error': 'Папка tests не найдена',
+                'files': []
+            })
+        
+        # Получаем все JSON файлы
+        files = []
+        for filename in sorted(os.listdir(tests_dir)):
+            if filename.endswith('.json'):
+                file_path = os.path.join(tests_dir, filename)
+                
+                # Получаем информацию о файле
+                file_stat = os.stat(file_path)
+                
+                # Читаем содержимое для получения метаинформации
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    # Извлекаем метаинформацию
+                    title = data.get('title', filename)
+                    questions_count = len(data.get('questions', []))
+                    
+                    # Если есть структура уроков
+                    lessons_info = []
+                    if 'lessons' in data:
+                        for lesson in data.get('lessons', []):
+                            lessons_info.append({
+                                'name': lesson.get('name'),
+                                'questions_count': len(lesson.get('questions', []))
+                            })
+                    
+                except Exception as e:
+                    title = filename
+                    questions_count = 0
+                    lessons_info = []
+                    print(f"[WARN] Не удалось прочитать {filename}: {e}")
+                
+                files.append({
+                    'name': filename,
+                    'path': file_path,
+                    'size': file_stat.st_size,
+                    'size_kb': round(file_stat.st_size / 1024, 2),
+                    'modified': datetime.fromtimestamp(file_stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'title': title,
+                    'questions_count': questions_count,
+                    'lessons_count': len(lessons_info),
+                    'lessons': lessons_info,
+                    'is_current': SELECTED_TEST_FILE and os.path.abspath(file_path) == os.path.abspath(SELECTED_TEST_FILE)
+                })
+        
+        return jsonify({
+            'success': True,
+            'files': files,
+            'total': len(files),
+            'current_lesson': os.path.basename(SELECTED_TEST_FILE) if SELECTED_TEST_FILE else None
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка получения списка файлов: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'files': []
+        }), 500
+    
+@app.route('/api/tests/<filename>', methods=['GET'])
+def get_test_file(filename):
+    """
+    Получение содержимого конкретного файла теста
+    """
+    try:
+        file_path = os.path.join('tests', filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({
+                'success': False,
+                'error': 'Файл не найден'
+            }), 404
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        return jsonify({
+            'success': True,
+            'filename': filename,
+            'data': data
+        })
+        
+    except Exception as e:
+        print(f"[ERROR] Ошибка чтения файла {filename}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/questions/<int:lesson_id>', methods=['GET'])
 def get_questions(lesson_id):
     # If a selected merged file exists, prefer slicing there to be explicit
@@ -980,19 +1148,19 @@ if __name__ == '__main__':
     # Avoid running twice when Flask debug reloader is enabled by running
     # the selector only in the reloader child or when no reloader is present.
     try:
-        should_run_selector = (os.environ.get('WERKZEUG_RUN_MAIN') == 'true') or ('WERKZEUG_RUN_MAIN' not in os.environ)
-        if should_run_selector:
-            print(2)
-            created = interactive_test_selector()
+        # should_run_selector = (os.environ.get('WERKZEUG_RUN_MAIN') == 'true') or ('WERKZEUG_RUN_MAIN' not in os.environ)
+        # if should_run_selector:
+        #     print(2)
+        #     created = interactive_test_selector()
             
-            if created:
-                print(f"Объединённый файл создан: tests/{created}")
-            # Rebuild LESSONS from the selected file (if any)
-            if SELECTED_TEST_FILE:
-                build_lessons_from_file(SELECTED_TEST_FILE)
+        #     if created:
+        #         print(f"Объединённый файл создан: tests/{created}")
+        #     # Rebuild LESSONS from the selected file (if any)
+        #     if SELECTED_TEST_FILE:
+        #         build_lessons_from_file(SELECTED_TEST_FILE)
             # Load persisted completed tests from logs.txt and ip names
-            load_logs()
-            load_ip_names()
+        load_logs()
+        load_ip_names()
     except Exception:
         # не мешаем запуску сервера в случае ошибок в селекторе
         pass

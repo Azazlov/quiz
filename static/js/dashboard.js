@@ -18,6 +18,178 @@ class Dashboard {
         document.getElementById('refresh-btn').addEventListener('click', () => {
             this.loadStats();
         });
+        const refreshFilesBtn = document.getElementById('refresh-files-btn');
+        if (refreshFilesBtn) {
+            refreshFilesBtn.addEventListener('click', () => {
+                this.loadLessonFiles();
+            });
+        this.loadLessonFiles();
+        }
+    }
+
+    async loadLessonFiles() {
+        try {
+            const response = await fetch('/api/tests/list');
+            const data = await response.json();
+            
+            if (data.success) {
+                this.renderLessonFilesList(data.files, data.current_lesson);
+            } else {
+                this.showError('Не удалось загрузить список файлов: ' + (data.error || 'Неизвестная ошибка'));
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки списка файлов:', error);
+            this.showError('Ошибка подключения к серверу при загрузке файлов');
+        }
+    }
+    
+    renderLessonFilesList(files, currentLesson) {
+        const container = document.getElementById('lesson-files-list');
+        const currentLessonNameEl = document.getElementById('current-lesson-name');
+        
+        if (!container || !currentLessonNameEl) return;
+        
+        // Отображение текущего урока
+        if (currentLesson) {
+            currentLessonNameEl.textContent = currentLesson;
+        } else {
+            currentLessonNameEl.textContent = 'Не выбран';
+        }
+        
+        // Если файлов нет
+        if (!files || files.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">📁</div>
+                    <p>Файлы уроков не найдены</p>
+                </div>
+            `;
+            return;
+        }
+        
+        // Рендеринг списка файлов
+        container.innerHTML = files.map(file => {
+            const isCurrent = file.is_current;
+            return `
+                <div class="lesson-file-item ${isCurrent ? 'current' : ''}" data-filename="${this.escapeHtml(file.name)}">
+                    <div class="lesson-file-info">
+                        <div class="lesson-file-name">
+                            ${this.escapeHtml(file.name)}
+                            ${isCurrent ? '<span class="badge-current">Текущий</span>' : ''}
+                        </div>
+                        <div class="lesson-file-meta">
+                            ${file.title !== file.name ? `<span class="lesson-file-title">${this.escapeHtml(file.title)}</span>` : ''}
+                            ${file.questions_count > 0 ? `<span>❓ ${file.questions_count} вопросов</span>` : ''}
+                            ${file.lessons_count > 0 ? `<span>📚 ${file.lessons_count} уроков</span>` : ''}
+                            <span>💾 ${file.size_kb} KB</span>
+                        </div>
+                        <div class="lesson-file-date">
+                            Обновлен: ${this.escapeHtml(file.modified)}
+                        </div>
+                    </div>
+                    ${!isCurrent ? `
+                        <button class="btn-select-lesson" data-filename="${this.escapeHtml(file.name)}">
+                            Выбрать
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+        
+        // Добавление обработчиков событий для кнопок выбора
+        container.querySelectorAll('.btn-select-lesson').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const filename = btn.getAttribute('data-filename');
+                await this.selectLessonFile(filename);
+            });
+        });
+    }
+    
+    async selectLessonFile(filename) {
+        if (!filename) {
+            this.showError('Не указано имя файла');
+            return;
+        }
+        
+        try {
+            // Показываем индикатор загрузки
+            this.showNotification(`🔄 Переключение на урок "${filename}"...`, 'info');
+            
+            const response = await fetch('/api/select_lesson', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    lesson_name: filename
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                // Успешное переключение
+                this.showNotification(`✅ Урок "${filename}" успешно выбран!`, 'success');
+                
+                // Обновляем интерфейс
+                this.loadLessonFiles();
+                this.loadStats(); // Обновляем статистику
+                
+                // Обновляем список уроков на главной странице (если открыта)
+                setTimeout(() => {
+                    window.quizApp?.loadLessons?.();
+                }, 500);
+            } else {
+                this.showError('Не удалось выбрать урок: ' + (data.message || data.error || 'Неизвестная ошибка'));
+            }
+        } catch (error) {
+            console.error('Ошибка выбора урока:', error);
+            this.showError('Ошибка подключения к серверу при выборе урока');
+        }
+    }
+    
+    // Показать уведомление
+    showNotification(message, type = 'info') {
+        // Создаем или обновляем уведомление
+        let notification = document.getElementById('dashboard-notification');
+        
+        if (!notification) {
+            notification = document.createElement('div');
+            notification.id = 'dashboard-notification';
+            notification.className = 'notification';
+            document.body.appendChild(notification);
+        }
+        
+        // Устанавливаем класс в зависимости от типа
+        notification.className = `notification notification-${type}`;
+        notification.textContent = message;
+        notification.style.display = 'block';
+        
+        // Автоматическое скрытие через 3 секунды
+        setTimeout(() => {
+            notification.style.display = 'none';
+        }, 3000);
+    }
+    
+    // Показать ошибку
+    showError(message) {
+        console.error('[Dashboard Error]:', message);
+        this.showNotification(`❌ ${message}`, 'error');
+    }
+    
+    // ==================== СУЩЕСТВУЮЩИЕ МЕТОДЫ ====================
+    
+    async loadStats() {
+        try {
+            const response = await fetch('/api/dashboard/stats');
+            const data = await response.json();
+            
+            this.updateStats(data);
+            this.updateLastUpdateTime();
+        } catch (error) {
+            console.error('Ошибка загрузки статистики:', error);
+            this.showError('Ошибка загрузки статистики');
+        }
     }
     
     async loadStats() {

@@ -21,6 +21,26 @@
             </div>
         </header>
 
+        <!-- Блок выбора файла урока -->
+        <aside class="panel panel--lesson-selector">
+            <div class="panel-header">
+                <h2>📚 Выбор файла урока</h2>
+                <button id="refresh-files-btn" class="btn-refresh" title="Обновить список файлов">🔄</button>
+            </div>
+            <div class="panel-body">
+                <div class="lesson-selector-content">
+                    <div class="lesson-files-list" id="lesson-files-list">
+                        <!-- Список файлов будет загружен сюда -->
+                    </div>
+                    
+                    <div class="current-lesson-info" id="current-lesson-info">
+                        <div class="current-lesson-label">Текущий урок:</div>
+                        <div class="current-lesson-name" id="current-lesson-name">Загрузка...</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
         <!-- Основной контент -->
         <main class="dashboard-main">
             <!-- Верхняя строка статистики -->

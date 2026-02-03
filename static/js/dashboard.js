@@ -41,6 +41,8 @@ class Dashboard {
         
         // Обновление недавних тестов
         this.updateRecentTests(data.recent_tests);
+
+        console.log(data)
         
         // Обновление статистики по урокам
         this.updateLessonStats(data.lesson_stats);
@@ -79,9 +81,9 @@ class Dashboard {
             return `
                 <div class="ip-group">
                     <div class="ip-group-header">
-                        <div class="ip-badge">${displayName}</div>
+                        <div class="ip-badge">${group.device_id}</div>
                         <div class="ip-count">${group.total_active} active</div>
-                        <button class="btn ip-edit" data-ip="${this.escapeHtml(group.ip)}">✎</button>
+                        <button class="btn ip-edit" data-ip="${group.device_id}">✎Редактировать</button>
                     </div>
                     <div class="ip-group-body">${sessionsHtml}</div>
                 </div>
@@ -230,12 +232,12 @@ class Dashboard {
             `;
             return;
         }
-        
+
         container.innerHTML = tests.map(test => {
             const gradeClass = test.percentage >= 90 ? 'excellent' :
                               test.percentage >= 75 ? 'good' :
                               test.percentage >= 60 ? 'satisfactory' : 'unsatisfactory';
-            
+
             return `
                 <div class="test-item">
                     <div class="test-header">

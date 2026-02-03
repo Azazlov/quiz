@@ -101,7 +101,8 @@
           "correct_answer": 2,
           "points": 1
         }
-      ]
+      ],
+      "available": false
     },
     {
       "id": 2,
@@ -203,7 +204,8 @@
           "correct_answer": 2,
           "points": 1
         }
-      ]
+      ],
+      "available": false
     },
     {
       "id": 3,
@@ -305,7 +307,8 @@
           "correct_answer": 1,
           "points": 1
         }
-      ]
+      ],
+      "available": false
     },
     {
       "id": 4,
@@ -407,7 +410,8 @@
           "correct_answer": 2,
           "points": 1
         }
-      ]
+      ],
+      "available": false
     },
     {
       "id": 5,
@@ -713,7 +717,8 @@
           "correct_answer": 2,
           "points": 1
         }
-      ]
+      ],
+      "available": false
     },
     {
       "id": 8,
@@ -815,7 +820,8 @@
           "correct_answer": 3,
           "points": 1
         }
-      ]
+      ],
+      "available": false
     }
   ]
 }

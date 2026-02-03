@@ -296,8 +296,8 @@ def interactive_test_selector():
         print(f"  {i}. {os.path.basename(p)}")
 
     print('\nВыберите один номер для использования как урок (например: 2),')
-    print('или укажите несколько номеров через запятую для объединения (например: 1,2).')
-    print('Нажмите Enter чтобы пропустить:')
+    # print('или укажите несколько номеров через запятую для объединения (например: 1,2).')
+    # print('Нажмите Enter чтобы пропустить:')
     sel = input('> ').strip()
     if not sel:
         return None
@@ -739,7 +739,6 @@ def get_dashboard_stats():
         elapsed = int(current_time - data['start_time'])
         total_questions = len(load_questions(data.get('lesson_id')))
         progress = (data.get('questions_answered', 0) / total_questions * 100) if total_questions > 0 else 0
-        
         active_sessions.append({
             'session_id': sid,
             'device_id': data.get('device_id'),
@@ -747,6 +746,7 @@ def get_dashboard_stats():
             'lesson_name': data['lesson_name'],
             'lesson_id': data['lesson_id'],
             'ip': data.get('ip'),
+            'ip_name': IP_NAMES.get(data.get('device_id')) or None,
             'elapsed_time': elapsed,
             'elapsed_time_formatted': f"{elapsed // 60}:{elapsed % 60:02d}",
             'questions_answered': data.get('questions_answered', 0),
@@ -782,21 +782,22 @@ def get_dashboard_stats():
     ip_groups = {}
     for s in active_sessions:
         ip = s.get('ip') or 'unknown'
-        ip_groups.setdefault(ip, {'ip': ip, 'active_sessions': [], 'total_active': 0})
+        device_id = s.get('device_id') or 'unknown'
+        ip_groups.setdefault(ip, {'ip': ip, 'active_sessions': [], 'total_active': 0, 'device_id': device_id})
         ip_groups[ip]['active_sessions'].append(s)
         ip_groups[ip]['total_active'] = len(ip_groups[ip]['active_sessions'])
 
     # недавние тесты по IP
     recent_by_ip = {}
     for t in completed_tests[-200:]:
-        ip = t.get('ip') or 'unknown'
+        ip = t.get('device_id') or 'unknown'
         recent_by_ip.setdefault(ip, [])
         recent_by_ip[ip].append(t)
 
     # enrich recent_tests with ip_name and device_id
     for rt in recent_tests:
         ip = rt.get('ip')
-        rt['ip_name'] = IP_NAMES.get(ip) if ip else None
+        rt['ip_name'] = IP_NAMES.get(rt.get('device_id')) or None
         rt['device_id'] = rt.get('device_id') or None
     
     for lid, stats in lesson_stats.items():
@@ -922,7 +923,6 @@ def submit_answers():
                 grade=grade,
                 elapsed_time=elapsed_time
             )
-            
             # Сохранение завершенного теста (в память и в лог-файл)
             record = {
                 'id': str(uuid.uuid4())[:8],
@@ -930,7 +930,7 @@ def submit_answers():
                 'student_name': student_name,
                 'lesson_id': sessions[session_id]['lesson_id'],
                 'lesson_name': sessions[session_id]['lesson_name'],
-                    'device_id': sessions[session_id].get('device_id'),
+                'device_id': sessions[session_id].get('device_id'),
                 'score': score,
                 'total': total_questions,
                 'percentage': round(percentage, 2),
@@ -940,6 +940,7 @@ def submit_answers():
                 'timestamp': datetime.now().strftime('%H:%M:%S'),
                 'date': datetime.now().strftime('%Y-%m-%d'),
                 'ip': sessions[session_id].get('ip'),
+                'ip_name': IP_NAMES.get(sessions[session_id].get('device_id')),
                 'start_time': sessions[session_id].get('start_timestamp')
             }
             completed_tests.append(record)
@@ -973,7 +974,9 @@ if __name__ == '__main__':
     try:
         should_run_selector = (os.environ.get('WERKZEUG_RUN_MAIN') == 'true') or ('WERKZEUG_RUN_MAIN' not in os.environ)
         if should_run_selector:
+            print(2)
             created = interactive_test_selector()
+            
             if created:
                 print(f"Объединённый файл создан: tests/{created}")
             # Rebuild LESSONS from the selected file (if any)

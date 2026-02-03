@@ -193,11 +193,11 @@ class Dashboard {
             return;
         }
         container.innerHTML = sessions.map(session => `
+            ${session.start_timestamp}
             <div class="session-item">
                 <div class="session-header">
                     <span class="session-name">${this.escapeHtml(session.student_name)}${session.ip_name ? ' (' + this.escapeHtml(session.ip_name) + ')' : ''}</span>
-                    <span class="session-session-id">SessionID: ${this.escapeHtml(session.session_id)}</span>
-                    <span class="session-device-id">DeviceID: ${this.escapeHtml(session.device_id)}</span>
+                    <span class="session-device">Device: ${this.escapeHtml(session.device_id || session.session_id)}</span>
                     <span class="session-time">${session.elapsed_time_formatted}</span>
                 </div>
                 <div class="session-info">

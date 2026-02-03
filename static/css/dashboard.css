@@ -219,6 +219,7 @@ body {
 .panel-body {
     padding: 20px;
     max-height: 800px;
+    min-height: 8rem;
     overflow-y: auto;
 }
 

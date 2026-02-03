@@ -1,6 +1,5 @@
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 import hashlib
-import re
 import json
 import dotenv
 import os

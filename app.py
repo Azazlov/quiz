@@ -733,13 +733,16 @@ def get_dashboard_stats():
     
     # Активные сессии
     active_sessions = []
+    # print(sessions.items())
     for sid, data in sessions.items():
+        print(sid, data)
         elapsed = int(current_time - data['start_time'])
         total_questions = len(load_questions(data.get('lesson_id')))
         progress = (data.get('questions_answered', 0) / total_questions * 100) if total_questions > 0 else 0
         
         active_sessions.append({
             'session_id': sid,
+            'device_id': data.get('device_id'),
             'student_name': data['student_name'],
             'lesson_name': data['lesson_name'],
             'lesson_id': data['lesson_id'],
@@ -747,7 +750,7 @@ def get_dashboard_stats():
             'elapsed_time': elapsed,
             'elapsed_time_formatted': f"{elapsed // 60}:{elapsed % 60:02d}",
             'questions_answered': data.get('questions_answered', 0),
-            'start_timestamp ': data.get('start_timestamp'),
+            'start_timestamp': data.get('start_timestamp'),
             'correct_answers': data.get('correct_answers', 0),
             'total_questions': total_questions,
             'progress': round(progress, 1),

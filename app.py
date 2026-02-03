@@ -135,10 +135,57 @@ def save_ip_names(path=IP_NAMES_FILE):
 
 LOG_FILE = 'logs.txt'
 
+def normalize_log_entry(entry):
+    """
+    Нормализует запись перед сохранением:
+    - Убирает избыточные/производные поля
+    - Стандартизирует формат timestamp
+    - Гарантирует наличие обязательных полей
+    """
+    # Обязательные поля с безопасными значениями по умолчанию
+    normalized = {
+        'id': entry.get('id') or str(uuid.uuid4())[:8],
+        'student_name': str(entry.get('student_name', 'Ученик')).strip() or 'Ученик',
+        'device_id': entry.get('device_id'),
+        'lesson_id': int(entry.get('lesson_id', 1)),
+        'score': int(entry.get('score', 0)),
+        'total': int(entry.get('total', 0)),
+        'percentage': round(float(entry.get('percentage', 0.0)), 2),
+        'grade': str(entry.get('grade', '2 (Неудовлетворительно)')),
+        'elapsed_time': int(entry.get('elapsed_time', 0)),
+        'ip': entry.get('ip')
+    }
+    
+    # Стандартизация timestamp → ISO 8601 (полный формат)
+    timestamp = entry.get('timestamp') or entry.get('start_time')
+    if timestamp:
+        try:
+            # Если timestamp уже в ISO формате — оставляем как есть
+            if 'T' in str(timestamp):
+                normalized['timestamp'] = timestamp
+            else:
+                # Преобразуем "00:53:49" → "2026-02-04T00:53:49"
+                today = datetime.now().strftime('%Y-%m-%d')
+                normalized['timestamp'] = f"{today}T{timestamp}"
+        except:
+            normalized['timestamp'] = datetime.now().isoformat()
+    else:
+        normalized['timestamp'] = datetime.now().isoformat()
+    
+    # Убираем избыточные поля (хранятся в других источниках или вычисляются)
+    # - elapsed_time_formatted → вычисляется из elapsed_time
+    # - lesson_name → восстанавливается по lesson_id из LESSONS
+    # - ip_name → хранится в отдельном ip_names.json
+    # - start_time → вычисляется как timestamp - elapsed_time
+    # - date → извлекается из timestamp
+    
+    return normalized
+
 def append_log_entry(entry, path=LOG_FILE):
     try:
+        normalized = normalize_log_entry(entry)
         with open(path, 'a', encoding='utf-8') as f:
-            json.dump(entry, f, ensure_ascii=False)
+            json.dump(normalized, f, ensure_ascii=False)
             f.write('\n')
     except Exception as e:
         print(f"[ERROR] Не удалось записать в лог {path}: {e}")

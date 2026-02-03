@@ -31,6 +31,8 @@ if env_test:
 # В начале app.py удаляем старый список LESSONS и инициализируем пустым
 LESSONS = []
 
+cooldown_devices = {}
+
 # Simple admin credentials (stored as hash in code)
 # Change these values as needed. Nickname is plain, password stored as sha256 hex.
 ADMIN_NICK = dotenv.get_key('.env', 'ADMIN_NICK') or os.environ.get('ADMIN_NICK', 'admin')
@@ -546,10 +548,16 @@ def get_questions(lesson_id):
 @app.route('/api/start_session', methods=['POST'])
 def start_session():
     """Создание новой сессии для ученика"""
+    global cooldown_devices
     try:
         data = request.get_json()
         student_name = data.get('student_name', 'Ученик')
         lesson_id = data.get('lesson_id', 1)
+        device_id = data.get('device_id')
+        if (device_id in cooldown_devices) and (time.time() - cooldown_devices[device_id] < 600):
+            return jsonify({'success': False, 'error': f'Пожалуйста, подождите {600-int(time.time() - cooldown_devices[device_id])}сек. перед началом нового теста.'}), 429
+        else:
+            cooldown_devices[device_id] = time.time()
         
         # Проверяем доступность урока
         lesson_entry = None

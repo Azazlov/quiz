@@ -119,7 +119,7 @@ font-size: 1.3em;
 font-weight: bold;
 }
 .timer {
-color: #e96464;
+color: #efefef;
 }
 .question-container {
 margin-bottom: 40px;
@@ -187,8 +187,8 @@ flex: 1;
 border: 1px solid #444444;
 }
 .btn-primary {
-background: linear-gradient(135deg, #5e97f6 0%, #a77dc2 100%);
-color: white;
+background: linear-gradient(135deg, #5e97f6 0%, #488afc 100%);
+color: #e5e5e5;
 }
 .btn-primary:hover {
 transform: translateY(-3px);

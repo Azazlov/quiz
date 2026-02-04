@@ -314,7 +314,7 @@ async loadLessons() {
             const timerEl = document.getElementById('timer');
             if (timerEl) {
                 timerEl.textContent = 
-                    `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    `Прошло времени: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
             }
         }, 1000);
     }

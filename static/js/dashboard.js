@@ -234,7 +234,7 @@ class Dashboard {
             container.innerHTML = `
                 <div class="empty-state">
                     <div class="empty-icon">🛰️</div>
-                    <p>Нет активных IP</p>
+                    <p>Нет активных UUID</p>
                 </div>
             `;
             return;
@@ -267,7 +267,7 @@ class Dashboard {
             btn.addEventListener('click', async (e) => {
                 const ip = btn.getAttribute('data-ip');
                 const current = ''; // could fetch current from data, but we'll prompt
-                const name = prompt('Введите имя для IP ' + ip + ' (пусто для удаления):', current);
+                const name = prompt('Введите имя для UUID ' + ip + ' (пусто для удаления):', current);
                 if (name === null) return;
                 try {
                     const res = await fetch('/api/ip_names', {

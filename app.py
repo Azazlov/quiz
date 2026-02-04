@@ -761,19 +761,78 @@ def get_questions(lesson_id):
 
 @app.route('/api/start_session', methods=['POST'])
 def start_session():
-    """Создание новой сессии для ученика"""
+    """Создание новой сессии для ученика или восстановление существующей"""
     global cooldown_devices
     try:
         data = request.get_json()
         student_name = data.get('student_name', 'Ученик')
         lesson_id = data.get('lesson_id', 1)
         device_id = data.get('device_id')
-        if (device_id in cooldown_devices) and (time.time() - cooldown_devices[device_id] < 600):
-            return jsonify({'success': False, 'error': f'Пожалуйста, подождите {600-int(time.time() - cooldown_devices[device_id])}сек. перед началом нового теста.'}), 429
-        else:
-            cooldown_devices[device_id] = time.time()
         
-        # Проверяем доступность урока
+        if not device_id:
+            return jsonify({'success': False, 'error': 'Не указан идентификатор устройства'}), 400
+        
+        # Получаем реальный IP клиента (с учётом прокси)
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
+        
+        # Создаём уникальный идентификатор для кулдауна: комбинация device_id + IP
+        # Это предотвращает обход кулдауна при смене браузера или очистке куки
+        cooldown_key = f"{device_id}_{client_ip}"
+        
+        # ============================================
+        # ШАГ 1: Проверяем, есть ли активная сессия для этого устройства + урока
+        # ============================================
+        active_session = None
+        for sid, sess in sessions.items():
+            # Ищем сессию по совпадению device_id, IP и lesson_id
+            if (sess.get('device_id') == device_id and 
+                sess.get('ip') == client_ip and
+                sess.get('lesson_id') == lesson_id):
+                
+                # Если сессия НЕ завершена — восстанавливаем её
+                if not sess.get('completed', False):
+                    active_session = sid
+                    break
+        
+        if active_session:
+            # Восстанавливаем существующую сессию
+            session_data = sessions[active_session]
+            log_event(
+                active_session, 
+                'RESUME', 
+                f'Восстановлена сессия: {session_data.get("questions_answered", 0)}/{len(session_data.get("answers_log", []))} вопросов пройдено'
+            )
+            
+            return jsonify({
+                'success': True,
+                'session_id': active_session,
+                'student_name': session_data.get('student_name', student_name),
+                'resumed': True,
+                'current_question': session_data.get('current_question', 1),
+                'questions_answered': session_data.get('questions_answered', 0)
+            })
+        
+        # ============================================
+        # ШАГ 2: Проверяем кулдаун (только если нет активной сессии)
+        # ============================================
+        # Проверяем кулдаун по комбинации device_id + IP
+        if cooldown_key in cooldown_devices:
+            time_since_last_test = time.time() - cooldown_devices[cooldown_key]
+            if time_since_last_test < 600:  # 10 минут кулдаун
+                remaining = 600 - int(time_since_last_test)
+                log_event(
+                    'unknown',
+                    'COOLDOWN',
+                    f'Попытка обхода кулдауна: device={device_id}, ip={client_ip}'
+                )
+                return jsonify({
+                    'success': False, 
+                    'error': f'Пожалуйста, подождите {remaining}сек. перед началом нового теста.'
+                }), 429
+        
+        # ============================================
+        # ШАГ 3: Проверяем доступность урока
+        # ============================================
         lesson_entry = None
         for l in LESSONS:
             if l.get('id') == lesson_id:
@@ -782,14 +841,19 @@ def start_session():
 
         if lesson_entry and lesson_entry.get('available') is False:
             return jsonify({'success': False, 'error': 'Урок временно недоступен'}), 403
-
+        
+        # ============================================
+        # ШАГ 4: Создаём новую сессию
+        # ============================================
+        # Обновляем время кулдауна (только при создании НОВОЙ сессии)
+        cooldown_devices[cooldown_key] = time.time()
+        
         # Генерация уникального ID сессии
         session_id = str(uuid.uuid4())[:8]
 
         # Determine lesson name/file: prefer SELECTED_TEST_FILE if set
         if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
             lesson_file = SELECTED_TEST_FILE
-            # keep lesson number/name from LESSONS so UI shows the lesson number
             try:
                 lesson_name = lesson_entry['name'] if lesson_entry else os.path.splitext(os.path.basename(lesson_file))[0]
             except Exception:
@@ -797,12 +861,10 @@ def start_session():
             stored_lesson_id = lesson_id
         else:
             lesson_file = None
-            # keep behaviour for numeric lessons
             lesson_name = lesson_entry['name'] if lesson_entry else f"Занятие {lesson_id}"
             stored_lesson_id = lesson_id
 
         # capture client IP and start timestamp
-        client_ip = request.remote_addr
         start_ts = datetime.now().isoformat()
 
         # Сохранение информации о сессии
@@ -814,30 +876,36 @@ def start_session():
             'start_time': time.time(),
             'start_timestamp': start_ts,
             'ip': client_ip,
-            'device_id': data.get('device_id'),
+            'device_id': device_id,
             'questions_answered': 0,
             'correct_answers': 0,
             'current_question': 1,
-            'answers_log': []
+            'answers_log': [],
+            'completed': False,  # ← Флаг завершённости сессии
+            'last_activity': time.time()  # ← Время последней активности
         }
         
         # Логирование начала теста
         log_event(
             session_id, 
             'START', 
-            f'Начал тест по уроку: {lesson_name}',
+            f'Начал тест по уроку: {lesson_name} (device={device_id}, ip={client_ip})',
             lesson_id=stored_lesson_id
         )
         
         return jsonify({
             'success': True,
             'session_id': session_id,
-            'student_name': student_name
+            'student_name': student_name,
+            'resumed': False,
+            'current_question': 1,
+            'questions_answered': 0
         })
+        
     except Exception as e:
-        log_event('unknown', 'ERROR', f'Ошибка создания сессии: {str(e)}')
+        log_event('unknown', 'ERROR', f'Ошибка создания/восстановления сессии: {str(e)}')
         return jsonify({'success': False, 'error': str(e)}), 500
-
+    
 @app.route('/api/log_question', methods=['POST'])
 def log_question():
     """Логирование просмотра вопроса"""
@@ -938,6 +1006,7 @@ completed_tests = []
 
 @app.route('/dashboard')
 def teacher_dashboard():
+    print(session)
     """Страница дашборда для преподавателя"""
     if not session.get('admin'):
         return redirect(url_for('login'))
@@ -1074,6 +1143,11 @@ def submit_answers():
         user_answers = data.get('answers', [])
         lesson_id = data.get('lesson_id', 1)
         session_id = data.get('session_id')
+
+        session_data = sessions[session_id]
+        session_data['completed'] = True
+        session_data['end_time'] = time.time()
+        session_data['last_activity'] = time.time()
         
         questions = load_questions(lesson_id)
         

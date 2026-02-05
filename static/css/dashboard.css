@@ -103,7 +103,7 @@
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+    background: black;
     color: var(--text-primary);
     min-height: 100vh;
     transition: background 0.3s ease, color 0.3s ease;

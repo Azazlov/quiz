@@ -213,8 +213,6 @@ class Dashboard {
         
         // Обновление недавних тестов
         this.updateRecentTests(data.recent_tests);
-
-        console.log(data)
         
         // Обновление статистики по урокам
         this.updateLessonStats(data.lesson_stats);
@@ -409,13 +407,13 @@ class Dashboard {
             const gradeClass = test.percentage >= 90 ? 'excellent' :
                               test.percentage >= 75 ? 'good' :
                               test.percentage >= 60 ? 'satisfactory' : 'unsatisfactory';
-
+            console.log(test.timestamp instanceof Date && !isNaN(test.timestamp.getTime()))
             return `
                 <div class="test-item">
                     <div class="test-header">
                         <span class="test-name">${this.escapeHtml(test.student_name)}${test.ip_name ? ' (' + this.escapeHtml(test.ip_name) + ')' : ''}</span>
                         <span class="test-id">ID: ${this.escapeHtml(test.id || '')}</span>
-                        <span class="test-time">${test.timestamp}</span>
+                        <span class="test-time">${test.timestamp.length > 11?formatTimestamp(test.timestamp) : test.timestamp}</span>
                     </div>
                     <div class="test-info">
                         <div class="test-lesson">${this.escapeHtml(test.lesson_name)}</div>
@@ -424,7 +422,7 @@ class Dashboard {
                             ${test.score}/${test.total} (${test.percentage}%)
                             <span class="test-grade">${test.grade}</span>
                         </div>
-                        <div class="test-duration">⏱️ ${test.elapsed_time_formatted}</div>
+                        <div class="test-duration">⏱️ ${test.elapsed_time_formatted || `${Math.floor(test.elapsed_time/60)}:${test.elapsed_time%60}`}</div>
                     </div>
                 </div>
             `;

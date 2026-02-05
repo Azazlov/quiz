@@ -210,8 +210,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 30px;
-    padding-bottom: 20px;
+    padding: 1rem;
     border-bottom: 2px solid var(--border-color);
 }
 

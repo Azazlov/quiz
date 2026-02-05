@@ -1289,9 +1289,9 @@ if __name__ == '__main__':
     print(f"{Fore.CYAN}📚 Доступные уроки:")
     for lesson in LESSONS:
         print(f"   {lesson['id']}. {lesson['name']}")
-    print(f"\n{Fore.YELLOW}📡 Сервер запущен: {Fore.WHITE + Style.BRIGHT}http://localhost:8000")
-    print(f"{Fore.YELLOW}📊 Дашборд: {Fore.WHITE + Style.BRIGHT}http://localhost:8000/dashboard")
-    print(f"{Fore.YELLOW}📈 API статистики: {Fore.WHITE + Style.BRIGHT}http://localhost:8000/api/dashboard/stats")
+    print(f"\n{Fore.YELLOW}📡 Сервер запущен: {Fore.WHITE + Style.BRIGHT}http://localhost:80")
+    print(f"{Fore.YELLOW}📊 Дашборд: {Fore.WHITE + Style.BRIGHT}http://localhost:80/dashboard")
+    print(f"{Fore.YELLOW}📈 API статистики: {Fore.WHITE + Style.BRIGHT}http://localhost:80/api/dashboard/stats")
     print(f"\n{Fore.GREEN + Style.BRIGHT}{'─'*80}\n")
     
-    app.run(debug=True, host='0.0.0.0', port=8000)
+    app.run(debug=True, host='0.0.0.0', port=80)

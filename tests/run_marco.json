@@ -4,7 +4,7 @@
     {
       "id": 1,
       "name": "Занятие 1: Основы программирования в Run Marco",
-      "available": true,
+      "available": false,
       "questions": [
         {
           "id": 1,

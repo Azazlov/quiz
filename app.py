@@ -110,6 +110,239 @@ sessions = {}
 IP_NAMES_FILE = 'ip_names.json'
 IP_NAMES = {}
 
+# Изменяем путь к файлу логов
+LOG_FILE = 'logs.json'  # Было: 'logs.txt'
+
+def validate_log_entry(entry):
+    """
+    Валидация записи лога.
+    Возвращает (True, None) если валидна, или (False, error_message) если нет.
+    """
+    required_fields = ['id', 'student_name', 'lesson_id', 'score', 'total', 'percentage', 'grade', 'elapsed_time', 'timestamp']
+    
+    # Проверка наличия обязательных полей
+    for field in required_fields:
+        if field not in entry:
+            return False, f"Отсутствует обязательное поле: {field}"
+    
+    # Валидация типов данных
+    try:
+        # ID должен быть строкой
+        if not isinstance(entry['id'], str):
+            return False, "Поле 'id' должно быть строкой"
+        
+        # Имя ученика должно быть строкой
+        if not isinstance(entry['student_name'], str):
+            return False, "Поле 'student_name' должно быть строкой"
+        
+        # lesson_id должен быть целым числом
+        if not isinstance(entry['lesson_id'], int):
+            entry['lesson_id'] = int(entry['lesson_id'])
+        
+        # score и total должны быть целыми числами
+        if not isinstance(entry['score'], int):
+            entry['score'] = int(entry['score'])
+        if not isinstance(entry['total'], int):
+            entry['total'] = int(entry['total'])
+        
+        # percentage должен быть числом
+        if not isinstance(entry['percentage'], (int, float)):
+            entry['percentage'] = float(entry['percentage'])
+        
+        # elapsed_time должен быть целым числом
+        if not isinstance(entry['elapsed_time'], int):
+            entry['elapsed_time'] = int(entry['elapsed_time'])
+        
+        # timestamp должен быть строкой
+        if not isinstance(entry['timestamp'], str):
+            return False, "Поле 'timestamp' должно быть строкой"
+        
+        # Проверка логических ограничений
+        if entry['score'] < 0:
+            return False, "score не может быть отрицательным"
+        if entry['total'] <= 0:
+            return False, "total должен быть положительным"
+        if entry['score'] > entry['total']:
+            return False, "score не может быть больше total"
+        if not (0 <= entry['percentage'] <= 100):
+            return False, "percentage должен быть в диапазоне 0-100"
+        if entry['elapsed_time'] < 0:
+            return False, "elapsed_time не может быть отрицательным"
+        
+    except (ValueError, TypeError) as e:
+        return False, f"Ошибка валидации типов данных: {str(e)}"
+    
+    return True, None
+
+
+def load_logs(path=LOG_FILE):
+    """
+    Загрузка завершенных тестов из JSON-файла.
+    Формат файла: {"completed_tests": [...]}
+    """
+    global completed_tests
+    completed_tests.clear()
+    
+    if not os.path.exists(path):
+        print(f"[INFO] Файл логов {path} не найден, будет создан при первой записи")
+        return
+    
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Проверяем структуру файла
+        if not isinstance(data, dict) or 'completed_tests' not in data:
+            print(f"[WARN] Некорректная структура файла {path}, ожидается {{'completed_tests': [...]}}")
+            return
+        
+        raw_records = data['completed_tests']
+        
+        loaded_count = 0
+        invalid_count = 0
+        duplicate_count = 0
+        
+        for idx, record in enumerate(raw_records):
+            # Валидация записи
+            is_valid, error_msg = validate_log_entry(record)
+            
+            if not is_valid:
+                invalid_count += 1
+                print(f"[WARN] Запись #{idx}: {error_msg}")
+                print(f"    Данные: {str(record)[:150]}...")
+                continue
+            
+            # Проверка на дубликаты
+            record_id = record.get('id')
+            if any(t.get('id') == record_id for t in completed_tests):
+                duplicate_count += 1
+                print(f"[WARN] Запись #{idx}: Пропущен дубликат ID={record_id}")
+                continue
+            
+            completed_tests.append(record)
+            loaded_count += 1
+        
+        print(f"[INFO] Загружено {loaded_count} записей из {path}")
+        if invalid_count > 0:
+            print(f"[WARN] Пропущено {invalid_count} некорректных записей")
+        if duplicate_count > 0:
+            print(f"[WARN] Пропущено {duplicate_count} дубликатов")
+            
+    except json.JSONDecodeError as je:
+        print(f"[ERROR] Файл {path} поврежден или содержит некорректный JSON: {je}")
+        print(f"[INFO] Файл будет пересоздан при следующей записи")
+        
+    except Exception as e:
+        print(f"[ERROR] Не удалось прочитать логи {path}: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def append_log_entry(entry, path=LOG_FILE):
+    """
+    Добавление записи в JSON-лог.
+    Читает текущий файл, добавляет запись, перезаписывает файл.
+    """
+    try:
+        # Нормализуем запись
+        normalized = normalize_log_entry(entry)
+        
+        # Валидация записи перед сохранением
+        is_valid, error_msg = validate_log_entry(normalized)
+        if not is_valid:
+            print(f"[ERROR] Попытка сохранить невалидную запись: {error_msg}")
+            return False
+        
+        # Загружаем текущие данные или создаем новый файл
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                # Проверяем структуру
+                if not isinstance(data, dict) or 'completed_tests' not in data:
+                    print(f"[WARN] Некорректная структура {path}, создаю новую")
+                    data = {'completed_tests': []}
+            except (json.JSONDecodeError, Exception) as e:
+                print(f"[WARN] Ошибка чтения {path}: {e}, создаю новый файл")
+                data = {'completed_tests': []}
+        else:
+            # Файл не существует, создаем новый
+            data = {'completed_tests': []}
+            print(f"[INFO] Создаю новый файл логов: {path}")
+        
+        # Добавляем запись
+        data['completed_tests'].append(normalized)
+        
+        # Перезаписываем файл
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        print(f"[INFO] Запись сохранена: ID={normalized.get('id')}, ученик={normalized.get('student_name')}")
+        return True
+        
+    except Exception as e:
+        print(f"[ERROR] Не удалось записать в лог {path}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def backup_logs(max_backups=5):
+    """
+    Создание резервной копии файла логов.
+    Сохраняет до max_backups копий с суффиксом .backup.N
+    """
+    if not os.path.exists(LOG_FILE):
+        return
+    
+    import shutil
+    from datetime import datetime
+    
+    # Создаем имя для бэкапа
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_name = f"{LOG_FILE}.backup.{timestamp}"
+    
+    try:
+        shutil.copy2(LOG_FILE, backup_name)
+        print(f"[INFO] Создана резервная копия: {backup_name}")
+        
+        # Удаляем старые бэкапы, оставляя только max_backups последних
+        backup_pattern = f"{LOG_FILE}.backup.*"
+        backups = sorted(glob.glob(backup_pattern), reverse=True)
+        
+        for old_backup in backups[max_backups:]:
+            os.remove(old_backup)
+            print(f"[INFO] Удалена старая резервная копия: {old_backup}")
+            
+    except Exception as e:
+        print(f"[WARN] Не удалось создать резервную копию: {e}")
+
+
+def get_logs_stats():
+    """
+    Возвращает статистику по логам.
+    """
+    if not os.path.exists(LOG_FILE):
+        return {'exists': False, 'size': 0, 'record_count': 0}
+    
+    try:
+        with open(LOG_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        records = data.get('completed_tests', [])
+        file_size = os.path.getsize(LOG_FILE)
+        
+        return {
+            'exists': True,
+            'size': file_size,
+            'size_human': f"{file_size / 1024:.2f} KB",
+            'record_count': len(records),
+            'last_record': records[-1] if records else None
+        }
+    except Exception as e:
+        return {'exists': True, 'error': str(e), 'record_count': 0}
+
 def load_ip_names(path=IP_NAMES_FILE):
     global IP_NAMES
     if not os.path.exists(path):
@@ -177,44 +410,7 @@ def normalize_log_entry(entry):
     # - date → извлекается из timestamp
     
     return normalized
-
-def append_log_entry(entry, path=LOG_FILE):
-    try:
-        normalized = normalize_log_entry(entry)
-        with open(path, 'a', encoding='utf-8') as f:
-            json.dump(normalized, f, ensure_ascii=False)
-            f.write('\n')
-    except Exception as e:
-        print(f"[ERROR] Не удалось записать в лог {path}: {e}")
-
-
-def load_logs(path=LOG_FILE):
-    """Load existing completed test records from logs file into completed_tests."""
-    global completed_tests  # ← добавьте эту строку
-    
-    # Очищаем список перед загрузкой
-    completed_tests.clear()
-    
-    if not os.path.exists(path):
-        return
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                    # Basic validation
-                    if isinstance(rec, dict) and 'id' in rec:
-                        completed_tests.append(rec)
-                except Exception:
-                    # skip malformed lines
-                    continue
-        print(f"[INFO] Загружено {len(completed_tests)} записей из {path}")
-    except Exception as e:
-        print(f"[ERROR] Не удалось прочитать логи {path}: {e}")
-        
+          
 def load_questions(lesson_id=None):
     """Load questions from the selected test file if set, otherwise fall back
     to the legacy `tests/lesson{lesson_id}.json` behaviour.
@@ -1015,6 +1211,7 @@ def teacher_dashboard():
     return render_template('dashboard.html')
 
 @app.route('/api/dashboard/stats', methods=['GET'])
+@app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
     """Получение статистики для дашборда"""
     current_time = time.time()
@@ -1023,12 +1220,10 @@ def get_dashboard_stats():
     for sid in list(sessions.keys()):
         if current_time - sessions[sid]['start_time'] > 3600:
             del sessions[sid]
-    
-    # Активные сессии
+
+    # Активные сессии (без изменений)
     active_sessions = []
-    # print(sessions.items())
     for sid, data in sessions.items():
-        print(sid, data)
         elapsed = int(current_time - data['start_time'])
         total_questions = len(load_questions(data.get('lesson_id')))
         progress = (data.get('questions_answered', 0) / total_questions * 100) if total_questions > 0 else 0
@@ -1049,11 +1244,11 @@ def get_dashboard_stats():
             'progress': round(progress, 1),
             'progress_color': '#4CAF50' if progress > 75 else '#FF9800' if progress > 50 else '#F44336'
         })
-    
+
     # Недавние завершенные тесты (последние 20)
-    recent_tests = completed_tests[-20:][::-1]  # последние 20 в обратном порядке
-    
-    # Статистика по урокам
+    recent_tests = completed_tests[-20:][::-1]
+
+    # Статистика по урокам (без изменений)
     lesson_stats = {}
     for lesson in LESSONS:
         lesson_stats[lesson['id']] = {
@@ -1064,45 +1259,118 @@ def get_dashboard_stats():
             'average_percentage': 0,
             'total_points': 0
         }
-    
+
     for test in completed_tests:
         lid = test['lesson_id']
         if lid in lesson_stats:
             lesson_stats[lid]['completed_count'] += 1
             lesson_stats[lid]['total_points'] += test['percentage']
 
-    # Группировка по IP для дашборда
-    ip_groups = {}
-    for s in active_sessions:
-        ip = s.get('ip') or 'unknown'
-        device_id = s.get('device_id') or 'unknown'
-        ip_groups.setdefault(ip, {'ip': ip, 'active_sessions': [], 'total_active': 0, 'device_id': device_id})
-        ip_groups[ip]['active_sessions'].append(s)
-        ip_groups[ip]['total_active'] = len(ip_groups[ip]['active_sessions'])
-
-    # недавние тесты по IP
-    recent_by_ip = {}
-    for t in completed_tests[-200:]:
-        ip = t.get('device_id') or 'unknown'
-        recent_by_ip.setdefault(ip, [])
-        recent_by_ip[ip].append(t)
-
-    # enrich recent_tests with ip_name and device_id
-    for rt in recent_tests:
-        ip = rt.get('ip')
-        rt['ip_name'] = IP_NAMES.get(rt.get('device_id')) or None
-        rt['device_id'] = rt.get('device_id') or None
+    # ==================== НОВОЕ: Уникальные девайсы ====================
+    unique_devices = {}
     
+    # Собираем данные из активных сессий
+    for session in active_sessions:
+        device_id = session.get('device_id') or 'unknown'
+        if device_id not in unique_devices:
+            unique_devices[device_id] = {
+                'device_id': device_id,
+                'device_name': IP_NAMES.get(device_id) or None,
+                'first_seen': None,
+                'last_seen': None,
+                'total_tests': 0,
+                'completed_tests': 0,
+                'active_sessions': 0,
+                'students': set(),
+                'lessons': set(),
+                'total_score': 0,
+                'average_percentage': 0,
+                'is_active': False
+            }
+        
+        unique_devices[device_id]['active_sessions'] += 1
+        unique_devices[device_id]['is_active'] = True
+        unique_devices[device_id]['students'].add(session.get('student_name', 'Неизвестно'))
+        unique_devices[device_id]['lessons'].add(session.get('lesson_name', 'Неизвестно'))
+        unique_devices[device_id]['last_seen'] = session.get('start_timestamp')
+
+    # Собираем данные из завершенных тестов (логов)
+    for test in completed_tests:
+        device_id = test.get('device_id') or 'unknown'
+        
+        if device_id not in unique_devices:
+            unique_devices[device_id] = {
+                'device_id': device_id,
+                'device_name': IP_NAMES.get(device_id) or None,
+                'first_seen': None,
+                'last_seen': None,
+                'total_tests': 0,
+                'completed_tests': 0,
+                'active_sessions': 0,
+                'students': set(),
+                'lessons': set(),
+                'total_score': 0,
+                'average_percentage': 0,
+                'is_active': False
+            }
+        
+        # Обновляем статистику
+        unique_devices[device_id]['completed_tests'] += 1
+        unique_devices[device_id]['total_tests'] += 1
+        unique_devices[device_id]['total_score'] += test.get('percentage', 0)
+        unique_devices[device_id]['students'].add(test.get('student_name', 'Неизвестно'))
+        unique_devices[device_id]['lessons'].add(test.get('lesson_name', 'Неизвестно'))
+        
+        # Определяем временные рамки
+        timestamp = test.get('timestamp')
+        if timestamp:
+            if unique_devices[device_id]['first_seen'] is None:
+                unique_devices[device_id]['first_seen'] = timestamp
+            unique_devices[device_id]['last_seen'] = timestamp
+
+    # Форматируем данные для отправки
+    formatted_devices = []
+    for device_id, data in unique_devices.items():
+        # Вычисляем средний процент
+        avg_percentage = 0
+        if data['completed_tests'] > 0:
+            avg_percentage = round(data['total_score'] / data['completed_tests'], 1)
+        
+        # Форматируем множества в списки
+        students_list = sorted(list(data['students']))
+        lessons_list = sorted(list(data['lessons']))
+        
+        formatted_devices.append({
+            'device_id': device_id,
+            'device_name': data['device_name'],
+            'first_seen': data['first_seen'],
+            'last_seen': data['last_seen'],
+            'total_tests': data['total_tests'],
+            'completed_tests': data['completed_tests'],
+            'active_sessions': data['active_sessions'],
+            'students': students_list,
+            'lessons': lessons_list,
+            'average_percentage': avg_percentage,
+            'is_active': data['is_active'],
+            'student_count': len(students_list),
+            'lesson_count': len(lessons_list)
+        })
+
+    # Сортируем: сначала активные, затем по количеству тестов
+    formatted_devices.sort(key=lambda x: (not x['is_active'], -x['total_tests']))
+
+    # ==================== Конец нового блока ====================
+
     for lid, stats in lesson_stats.items():
         if stats['completed_count'] > 0:
             stats['average_percentage'] = round(stats['total_points'] / stats['completed_count'], 1)
             stats['average_score_text'] = f"{stats['average_percentage']}%"
             stats['trend'] = 'up' if stats['average_percentage'] > 70 else 'down'
-    
+
     # Общая статистика
     total_completed = len(completed_tests)
     total_active = len(active_sessions)
-    
+
     if total_completed > 0:
         avg_percentage = sum(t['percentage'] for t in completed_tests) / total_completed
         avg_time = sum(t['elapsed_time'] for t in completed_tests) / total_completed
@@ -1116,13 +1384,12 @@ def get_dashboard_stats():
         avg_percentage = 0
         avg_time = 0
         excellent = good = satisfactory = unsatisfactory = 0
-    
+
     return jsonify({
         'active_sessions': active_sessions,
         'recent_tests': recent_tests,
         'lesson_stats': list(lesson_stats.values()),
-        'ip_groups': list(ip_groups.values()),
-        'recent_by_ip': recent_by_ip,
+        'unique_devices': formatted_devices,  # ← Заменяем ip_groups
         'total_stats': {
             'total_completed': total_completed,
             'total_active': total_active,

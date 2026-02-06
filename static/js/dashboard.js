@@ -224,69 +224,170 @@ class Dashboard {
         this.loadLessonControls();
     }
 
-    updateIpGroups(ipGroups) {
-        const container = document.getElementById('ip-groups-container');
-        if (!container) return;
+// Заменяем метод отображения групп по IP на уникальные девайсы
+updateUniqueDevices(devices) {
+    const container = document.getElementById('ip-groups-container');
+    if (!container) return;
 
-        if (!ipGroups || ipGroups.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon">🛰️</div>
-                    <p>Нет активных UUID</p>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = ipGroups.map(group => {
-            const sessionsHtml = (group.active_sessions || []).map(s => `
-                <div class="ip-session">
-                    <div class="ip-session-name">${this.escapeHtml(s.student_name)}${s.ip_name ? ' (' + this.escapeHtml(s.ip_name) + ')' : ''}</div>
-                    <div class="ip-session-lesson">${this.escapeHtml(s.lesson_name)}</div>
-                    <div class="ip-session-time">${this.escapeHtml(s.elapsed_time_formatted)}</div>
-                </div>
-            `).join('');
-
-            const displayName = group.ip_name ? `${this.escapeHtml(group.ip_name)} (${this.escapeHtml(group.ip)})` : this.escapeHtml(group.ip);
-            return `
-                <div class="ip-group">
-                    <div class="ip-group-header">
-                        <div class="ip-badge">${group.device_id}</div>
-                        <div class="ip-count">${group.total_active} active</div>
-                        <button class="btn ip-edit" data-ip="${group.device_id}">✎Редактировать</button>
-                    </div>
-                    <div class="ip-group-body">${sessionsHtml}</div>
-                </div>
-            `;
-        }).join('');
-
-        // attach edit handlers
-        container.querySelectorAll('.ip-edit').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                const ip = btn.getAttribute('data-ip');
-                const current = ''; // could fetch current from data, but we'll prompt
-                const name = prompt('Введите имя для UUID ' + ip + ' (пусто для удаления):', current);
-                if (name === null) return;
-                try {
-                    const res = await fetch('/api/ip_names', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: {'Content-Type':'application/json'},
-                        body: JSON.stringify({ip: ip, name: name || null})
-                    });
-                    const j = await res.json();
-                    if (j.success) {
-                        this.loadStats();
-                    } else {
-                        alert('Ошибка: ' + (j.error || ''));
-                    }
-                } catch (err) {
-                    console.error(err);
-                    alert('Ошибка запроса');
-                }
-            });
-        });
+    if (!devices || devices.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">📱</div>
+                <p>Нет данных об устройствах</p>
+            </div>
+        `;
+        return;
     }
+
+    container.innerHTML = devices.map(device => {
+        // Форматируем информацию о студентах
+        const studentsHtml = device.students.map(student => 
+            `<span class="device-student">${this.escapeHtml(student)}</span>`
+        ).join(', ');
+
+        // Форматируем информацию об уроках
+        const lessonsHtml = device.lessons.map(lesson => 
+            `<span class="device-lesson">${this.escapeHtml(lesson)}</span>`
+        ).join(', ');
+
+        // Статус активности
+        const statusBadge = device.is_active 
+            ? '<span class="badge-active">🟢 Активен</span>'
+            : '<span class="badge-inactive">⚪ Неактивен</span>';
+
+        // Имя устройства или заглушка
+        const displayName = device.device_name 
+            ? `<strong>${this.escapeHtml(device.device_name)}</strong> (${this.escapeHtml(device.device_id)})`
+            : `<span class="device-id-raw">${this.escapeHtml(device.device_id)}</span>`;
+
+        return `
+            <div class="device-card ${device.is_active ? 'device-active' : ''}">
+                <div class="device-header">
+                    <div class="device-title">
+                        ${displayName}
+                        ${statusBadge}
+                    </div>
+                    <div class="device-actions">
+                        <button class="btn device-edit" data-device-id="${this.escapeHtml(device.device_id)}">
+                            ✎ Редактировать
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="device-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">📊 Тестов всего:</span>
+                        <span class="stat-value">${device.total_tests}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">✅ Завершено:</span>
+                        <span class="stat-value">${device.completed_tests}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">👥 Активных сессий:</span>
+                        <span class="stat-value">${device.active_sessions}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">⭐ Средний результат:</span>
+                        <span class="stat-value ${this.getGradeClass(device.average_percentage)}">
+                            ${device.average_percentage}%
+                        </span>
+                    </div>
+                </div>
+
+                <div class="device-details">
+                    ${device.student_count > 0 ? `
+                        <div class="device-detail-section">
+                            <div class="detail-label">👤 Студенты (${device.student_count}):</div>
+                            <div class="detail-value">${studentsHtml}</div>
+                        </div>
+                    ` : ''}
+                    
+                    ${device.lesson_count > 0 ? `
+                        <div class="device-detail-section">
+                            <div class="detail-label">📚 Пройденные уроки (${device.lesson_count}):</div>
+                            <div class="detail-value">${lessonsHtml}</div>
+                        </div>
+                    ` : ''}
+                    
+                    ${device.first_seen ? `
+                        <div class="device-detail-section">
+                            <div class="detail-label">🕐 Первый тест:</div>
+                            <div class="detail-value">${this.escapeHtml(device.first_seen)}</div>
+                        </div>
+                    ` : ''}
+                    
+                    ${device.last_seen ? `
+                        <div class="device-detail-section">
+                            <div class="detail-label">🕐 Последний тест:</div>
+                            <div class="detail-value">${this.escapeHtml(device.last_seen)}</div>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Добавляем обработчики событий для кнопок редактирования
+    container.querySelectorAll('.device-edit').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            const deviceId = btn.getAttribute('data-device-id');
+            const currentName = btn.closest('.device-card').querySelector('.device-title strong')?.textContent || '';
+            
+            const name = prompt(`Введите имя для устройства ${deviceId}\n(пусто для удаления имени):`, currentName);
+            
+            if (name === null) return; // Отмена
+            
+            try {
+                const res = await fetch('/api/ip_names', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ip: deviceId, name: name || null})
+                });
+                const j = await res.json();
+                if (j.success) {
+                    this.showNotification(`✅ Имя устройства обновлено!`, 'success');
+                    this.loadStats(); // Обновляем статистику
+                } else {
+                    this.showError('Ошибка: ' + (j.error || 'Неизвестная ошибка'));
+                }
+            } catch (err) {
+                console.error(err);
+                this.showError('Ошибка запроса к серверу');
+            }
+        });
+    });
+}
+
+// Вспомогательный метод для определения класса оценки
+getGradeClass(percentage) {
+    if (percentage >= 90) return 'grade-excellent';
+    if (percentage >= 75) return 'grade-good';
+    if (percentage >= 60) return 'grade-satisfactory';
+    return 'grade-unsatisfactory';
+}
+
+// В методе updateStats заменяем вызов
+updateStats(data) {
+    // Обновление основной статистики
+    this.updateTotalStats(data.total_stats);
+    
+    // Обновление активных сессий
+    this.updateActiveSessions(data.active_sessions);
+    
+    // Обновление недавних тестов
+    this.updateRecentTests(data.recent_tests);
+    
+    // Обновление статистики по урокам
+    this.updateLessonStats(data.lesson_stats);
+    
+    // Обновление уникальных девайсов (ЗАМЕНА)
+    if (data.unique_devices) this.updateUniqueDevices(data.unique_devices);
+
+    // Загрузка панели управления уроками
+    this.loadLessonControls();
+}
 
     async loadLessonControls() {
         try {
@@ -407,7 +508,7 @@ class Dashboard {
             const gradeClass = test.percentage >= 90 ? 'excellent' :
                               test.percentage >= 75 ? 'good' :
                               test.percentage >= 60 ? 'satisfactory' : 'unsatisfactory';
-            console.log(test.timestamp instanceof Date && !isNaN(test.timestamp.getTime()))
+            console.log(test.ip_name)
             return `
                 <div class="test-item">
                     <div class="test-header">

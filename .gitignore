@@ -1,5 +1,6 @@
 .env
 logs.txt
+logs.json
 __pycache__/
 instance/
 *.pyc

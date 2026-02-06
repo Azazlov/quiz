@@ -106,9 +106,6 @@ def build_lessons_from_file(file_path):
 # Хранилище сессий учеников
 sessions = {}
 
-# Хранилище завершенных тестов
-completed_tests = []
-
 # IP name mapping (persistent)
 IP_NAMES_FILE = 'ip_names.json'
 IP_NAMES = {}
@@ -193,6 +190,11 @@ def append_log_entry(entry, path=LOG_FILE):
 
 def load_logs(path=LOG_FILE):
     """Load existing completed test records from logs file into completed_tests."""
+    global completed_tests  # ← добавьте эту строку
+    
+    # Очищаем список перед загрузкой
+    completed_tests.clear()
+    
     if not os.path.exists(path):
         return
     try:
@@ -212,7 +214,7 @@ def load_logs(path=LOG_FILE):
         print(f"[INFO] Загружено {len(completed_tests)} записей из {path}")
     except Exception as e:
         print(f"[ERROR] Не удалось прочитать логи {path}: {e}")
-
+        
 def load_questions(lesson_id=None):
     """Load questions from the selected test file if set, otherwise fall back
     to the legacy `tests/lesson{lesson_id}.json` behaviour.

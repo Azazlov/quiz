@@ -1211,7 +1211,6 @@ def teacher_dashboard():
     return render_template('dashboard.html')
 
 @app.route('/api/dashboard/stats', methods=['GET'])
-@app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
     """Получение статистики для дашборда"""
     current_time = time.time()
@@ -1221,7 +1220,7 @@ def get_dashboard_stats():
         if current_time - sessions[sid]['start_time'] > 3600:
             del sessions[sid]
 
-    # Активные сессии (без изменений)
+    # Активные сессии
     active_sessions = []
     for sid, data in sessions.items():
         elapsed = int(current_time - data['start_time'])
@@ -1246,9 +1245,17 @@ def get_dashboard_stats():
         })
 
     # Недавние завершенные тесты (последние 20)
-    recent_tests = completed_tests[-20:][::-1]
+    recent_tests = completed_tests[-20:][::-1]  # последние 20 в обратном порядке
+    
+    # Обогащаем недавние тесты именами устройств
+    for rt in recent_tests:
+        device_id = rt.get('device_id')
+        if device_id:
+            rt['ip_name'] = IP_NAMES.get(device_id) or None
+        else:
+            rt['ip_name'] = None
 
-    # Статистика по урокам (без изменений)
+    # Статистика по урокам
     lesson_stats = {}
     for lesson in LESSONS:
         lesson_stats[lesson['id']] = {
@@ -1266,100 +1273,14 @@ def get_dashboard_stats():
             lesson_stats[lid]['completed_count'] += 1
             lesson_stats[lid]['total_points'] += test['percentage']
 
-    # ==================== НОВОЕ: Уникальные девайсы ====================
-    unique_devices = {}
-    
-    # Собираем данные из активных сессий
-    for session in active_sessions:
-        device_id = session.get('device_id') or 'unknown'
-        if device_id not in unique_devices:
-            unique_devices[device_id] = {
-                'device_id': device_id,
-                'device_name': IP_NAMES.get(device_id) or None,
-                'first_seen': None,
-                'last_seen': None,
-                'total_tests': 0,
-                'completed_tests': 0,
-                'active_sessions': 0,
-                'students': set(),
-                'lessons': set(),
-                'total_score': 0,
-                'average_percentage': 0,
-                'is_active': False
-            }
-        
-        unique_devices[device_id]['active_sessions'] += 1
-        unique_devices[device_id]['is_active'] = True
-        unique_devices[device_id]['students'].add(session.get('student_name', 'Неизвестно'))
-        unique_devices[device_id]['lessons'].add(session.get('lesson_name', 'Неизвестно'))
-        unique_devices[device_id]['last_seen'] = session.get('start_timestamp')
-
-    # Собираем данные из завершенных тестов (логов)
-    for test in completed_tests:
-        device_id = test.get('device_id') or 'unknown'
-        
-        if device_id not in unique_devices:
-            unique_devices[device_id] = {
-                'device_id': device_id,
-                'device_name': IP_NAMES.get(device_id) or None,
-                'first_seen': None,
-                'last_seen': None,
-                'total_tests': 0,
-                'completed_tests': 0,
-                'active_sessions': 0,
-                'students': set(),
-                'lessons': set(),
-                'total_score': 0,
-                'average_percentage': 0,
-                'is_active': False
-            }
-        
-        # Обновляем статистику
-        unique_devices[device_id]['completed_tests'] += 1
-        unique_devices[device_id]['total_tests'] += 1
-        unique_devices[device_id]['total_score'] += test.get('percentage', 0)
-        unique_devices[device_id]['students'].add(test.get('student_name', 'Неизвестно'))
-        unique_devices[device_id]['lessons'].add(test.get('lesson_name', 'Неизвестно'))
-        
-        # Определяем временные рамки
-        timestamp = test.get('timestamp')
-        if timestamp:
-            if unique_devices[device_id]['first_seen'] is None:
-                unique_devices[device_id]['first_seen'] = timestamp
-            unique_devices[device_id]['last_seen'] = timestamp
-
-    # Форматируем данные для отправки
-    formatted_devices = []
-    for device_id, data in unique_devices.items():
-        # Вычисляем средний процент
-        avg_percentage = 0
-        if data['completed_tests'] > 0:
-            avg_percentage = round(data['total_score'] / data['completed_tests'], 1)
-        
-        # Форматируем множества в списки
-        students_list = sorted(list(data['students']))
-        lessons_list = sorted(list(data['lessons']))
-        
-        formatted_devices.append({
-            'device_id': device_id,
-            'device_name': data['device_name'],
-            'first_seen': data['first_seen'],
-            'last_seen': data['last_seen'],
-            'total_tests': data['total_tests'],
-            'completed_tests': data['completed_tests'],
-            'active_sessions': data['active_sessions'],
-            'students': students_list,
-            'lessons': lessons_list,
-            'average_percentage': avg_percentage,
-            'is_active': data['is_active'],
-            'student_count': len(students_list),
-            'lesson_count': len(lessons_list)
-        })
-
-    # Сортируем: сначала активные, затем по количеству тестов
-    formatted_devices.sort(key=lambda x: (not x['is_active'], -x['total_tests']))
-
-    # ==================== Конец нового блока ====================
+    # Группировка по IP для дашборда
+    ip_groups = {}
+    for s in active_sessions:
+        ip = s.get('ip') or 'unknown'
+        device_id = s.get('device_id') or 'unknown'
+        ip_groups.setdefault(ip, {'ip': ip, 'active_sessions': [], 'total_active': 0, 'device_id': device_id})
+        ip_groups[ip]['active_sessions'].append(s)
+        ip_groups[ip]['total_active'] = len(ip_groups[ip]['active_sessions'])
 
     for lid, stats in lesson_stats.items():
         if stats['completed_count'] > 0:
@@ -1389,7 +1310,7 @@ def get_dashboard_stats():
         'active_sessions': active_sessions,
         'recent_tests': recent_tests,
         'lesson_stats': list(lesson_stats.values()),
-        'unique_devices': formatted_devices,  # ← Заменяем ip_groups
+        'ip_groups': list(ip_groups.values()),
         'total_stats': {
             'total_completed': total_completed,
             'total_active': total_active,

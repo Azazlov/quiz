@@ -9,6 +9,7 @@ from datetime import datetime
 from colorama import init, Fore, Back, Style
 import glob
 import sys
+from collections import defaultdict
 
 # Инициализация цветного вывода
 init(autoreset=True)
@@ -1212,28 +1213,33 @@ def teacher_dashboard():
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
-    """Получение статистики для дашборда"""
+    """Получение статистики для дашборда (Агрегация по IP)"""
     current_time = time.time()
     
-    # Фильтрация старых сессий
+    # 1. Очистка старых сессий
     for sid in list(sessions.keys()):
         if current_time - sessions[sid]['start_time'] > 3600:
             del sessions[sid]
 
-    # Активные сессии
-    active_sessions = []
+    # 2. Сбор данных для Active Sessions
+    active_sessions_list = []
     for sid, data in sessions.items():
         elapsed = int(current_time - data['start_time'])
         total_questions = len(load_questions(data.get('lesson_id')))
         progress = (data.get('questions_answered', 0) / total_questions * 100) if total_questions > 0 else 0
-        active_sessions.append({
+        
+        # Определяем имя по IP
+        client_ip = data.get('ip', 'unknown')
+        ip_name = IP_NAMES.get(client_ip)
+
+        active_sessions_list.append({
             'session_id': sid,
-            'device_id': data.get('device_id'),
+            'device_id': data.get('device_id'), # UUID устройства
             'student_name': data['student_name'],
             'lesson_name': data['lesson_name'],
             'lesson_id': data['lesson_id'],
-            'ip': data.get('ip'),
-            'ip_name': IP_NAMES.get(data.get('device_id')) or None,
+            'ip': client_ip,
+            'ip_name': ip_name,
             'elapsed_time': elapsed,
             'elapsed_time_formatted': f"{elapsed // 60}:{elapsed % 60:02d}",
             'questions_answered': data.get('questions_answered', 0),
@@ -1244,82 +1250,144 @@ def get_dashboard_stats():
             'progress_color': '#4CAF50' if progress > 75 else '#FF9800' if progress > 50 else '#F44336'
         })
 
-    # Недавние завершенные тесты (последние 20)
-    recent_tests = completed_tests[-20:][::-1]  # последние 20 в обратном порядке
-    
-    # Обогащаем недавние тесты именами устройств
-    for rt in recent_tests:
-        device_id = rt.get('device_id')
-        if device_id:
-            rt['ip_name'] = IP_NAMES.get(device_id) or None
-        else:
-            rt['ip_name'] = None
+    # 3. Агрегация данных по IP (Unique Devices)
+    # Структура: ip -> { stats }
+    ip_stats = {}
 
-    # Статистика по урокам
+    def get_ip_entry(ip_addr):
+        if ip_addr not in ip_stats:
+            ip_stats[ip_addr] = {
+                'ip': ip_addr,
+                'device_name': IP_NAMES.get(ip_addr), # Имя из ip_names.json
+                'students': set(),
+                'lessons': set(),
+                'active_sessions': 0,
+                'completed_tests': 0,
+                'total_tests': 0,
+                'total_percentage': 0,
+                'first_seen': None,
+                'last_seen': None
+            }
+        return ip_stats[ip_addr]
+
+    # 3a. Обработка завершенных тестов (History)
+    for test in completed_tests:
+        ip = test.get('ip')
+        if not ip: continue
+        
+        entry = get_ip_entry(ip)
+        entry['students'].add(test.get('student_name', 'Unknown'))
+        entry['lessons'].add(test.get('lesson_name', 'Unknown'))
+        entry['completed_tests'] += 1
+        entry['total_tests'] += 1
+        entry['total_percentage'] += test.get('percentage', 0)
+        
+        # Даты
+        ts = test.get('timestamp')
+        if ts:
+            if entry['first_seen'] is None or ts < entry['first_seen']:
+                entry['first_seen'] = ts
+            if entry['last_seen'] is None or ts > entry['last_seen']:
+                entry['last_seen'] = ts
+
+    # 3b. Обработка активных сессий (Active)
+    for s in active_sessions_list:
+        ip = s.get('ip')
+        if not ip: continue
+
+        entry = get_ip_entry(ip)
+        entry['active_sessions'] += 1
+        entry['total_tests'] += 1 # Считаем и текущую попытку
+        entry['students'].add(s.get('student_name'))
+        entry['lessons'].add(s.get('lesson_name'))
+        
+        ts = s.get('start_timestamp')
+        if ts:
+            if entry['first_seen'] is None or ts < entry['first_seen']:
+                entry['first_seen'] = ts
+            if entry['last_seen'] is None or ts > entry['last_seen']:
+                entry['last_seen'] = ts
+
+    # 3c. Формирование списка unique_devices для фронтенда
+    unique_devices_output = []
+    for ip, data in ip_stats.items():
+        avg_pct = 0
+        if data['completed_tests'] > 0:
+            avg_pct = round(data['total_percentage'] / data['completed_tests'], 1)
+        
+        unique_devices_output.append({
+            'device_id': ip, # ВАЖНО: ID теперь равен IP
+            'device_name': data['device_name'],
+            'is_active': data['active_sessions'] > 0,
+            'total_tests': data['total_tests'],
+            'completed_tests': data['completed_tests'],
+            'active_sessions': data['active_sessions'],
+            'average_percentage': avg_pct,
+            'students': list(data['students']),
+            'student_count': len(data['students']),
+            'lessons': list(data['lessons']),
+            'lesson_count': len(data['lessons']),
+            'first_seen': data['first_seen'],
+            'last_seen': data['last_seen']
+        })
+
+    # Сортировка: Сначала активные, потом по времени последней активности
+    unique_devices_output.sort(key=lambda x: (not x['is_active'], x['last_seen'] or ''), reverse=False)
+
+    # 4. Недавние тесты (для списка Recent)
+    recent_tests = completed_tests[-20:][::-1]
+    for rt in recent_tests:
+        # Обновляем отображаемое имя IP прямо сейчас
+        rt_ip = rt.get('ip')
+        rt['ip_name'] = IP_NAMES.get(rt_ip)
+
+    # 5. Статистика по урокам
     lesson_stats = {}
     for lesson in LESSONS:
         lesson_stats[lesson['id']] = {
             'lesson_id': lesson['id'],
             'lesson_name': lesson['name'],
             'completed_count': 0,
-            'average_score': 0,
             'average_percentage': 0,
-            'total_points': 0
+            'total_points': 0,
+            'trend': 'flat'
         }
 
     for test in completed_tests:
-        lid = test['lesson_id']
+        lid = test.get('lesson_id')
         if lid in lesson_stats:
             lesson_stats[lid]['completed_count'] += 1
-            lesson_stats[lid]['total_points'] += test['percentage']
-
-    # Группировка по IP для дашборда
-    ip_groups = {}
-    for s in active_sessions:
-        ip = s.get('ip') or 'unknown'
-        device_id = s.get('device_id') or 'unknown'
-        ip_groups.setdefault(ip, {'ip': ip, 'active_sessions': [], 'total_active': 0, 'device_id': device_id})
-        ip_groups[ip]['active_sessions'].append(s)
-        ip_groups[ip]['total_active'] = len(ip_groups[ip]['active_sessions'])
+            lesson_stats[lid]['total_points'] += test.get('percentage', 0)
 
     for lid, stats in lesson_stats.items():
         if stats['completed_count'] > 0:
             stats['average_percentage'] = round(stats['total_points'] / stats['completed_count'], 1)
-            stats['average_score_text'] = f"{stats['average_percentage']}%"
-            stats['trend'] = 'up' if stats['average_percentage'] > 70 else 'down'
+            stats['trend'] = 'up' if stats['average_percentage'] > 75 else 'down' if stats['average_percentage'] < 50 else 'flat'
 
-    # Общая статистика
+    # 6. Общие цифры
     total_completed = len(completed_tests)
-    total_active = len(active_sessions)
-
+    total_active = len(active_sessions_list)
+    avg_percentage = 0
+    avg_time = 0
+    
     if total_completed > 0:
         avg_percentage = sum(t['percentage'] for t in completed_tests) / total_completed
         avg_time = sum(t['elapsed_time'] for t in completed_tests) / total_completed
-        
-        # Расчет оценок
-        excellent = len([t for t in completed_tests if t['percentage'] >= 90])
-        good = len([t for t in completed_tests if 75 <= t['percentage'] < 90])
-        satisfactory = len([t for t in completed_tests if 60 <= t['percentage'] < 75])
-        unsatisfactory = len([t for t in completed_tests if t['percentage'] < 60])
-    else:
-        avg_percentage = 0
-        avg_time = 0
-        excellent = good = satisfactory = unsatisfactory = 0
 
     return jsonify({
-        'active_sessions': active_sessions,
+        'active_sessions': active_sessions_list,
         'recent_tests': recent_tests,
         'lesson_stats': list(lesson_stats.values()),
-        'ip_groups': list(ip_groups.values()),
+        'unique_devices': unique_devices_output, # Главное изменение
         'total_stats': {
             'total_completed': total_completed,
             'total_active': total_active,
             'average_percentage': round(avg_percentage, 1),
             'average_time': round(avg_time, 1),
-            'excellent': excellent,
-            'good': good,
-            'satisfactory': satisfactory,
-            'unsatisfactory': unsatisfactory
+            'excellent': len([t for t in completed_tests if t['percentage'] >= 90]),
+            'good': len([t for t in completed_tests if 75 <= t['percentage'] < 90]),
+            'satisfactory': len([t for t in completed_tests if 60 <= t['percentage'] < 75]),
+            'unsatisfactory': len([t for t in completed_tests if t['percentage'] < 60])
         },
         'timestamp': datetime.now().strftime('%H:%M:%S')
     })

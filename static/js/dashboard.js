@@ -225,140 +225,134 @@ class Dashboard {
     }
 
 // Заменяем метод отображения групп по IP на уникальные девайсы
-updateUniqueDevices(devices) {
-    const container = document.getElementById('ip-groups-container');
-    if (!container) return;
+// Заменяем метод отображения уникальных устройств (теперь по IP)
+    updateUniqueDevices(devices) {
+        const container = document.getElementById('ip-groups-container');
+        // Если контейнера нет (например, старая верстка), попробуем найти его старое ID или вернуть ошибку в консоль
+        if (!container) {
+             console.warn('Контейнер ip-groups-container не найден');
+             return;
+        }
 
-    if (!devices || devices.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state">
-                <div class="empty-icon">📱</div>
-                <p>Нет данных об устройствах</p>
-            </div>
-        `;
-        return;
-    }
+        if (!devices || devices.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-icon">🖥️</div>
+                    <p>Нет данных об IP-адресах</p>
+                </div>
+            `;
+            return;
+        }
 
-    container.innerHTML = devices.map(device => {
-        // Форматируем информацию о студентах
-        const studentsHtml = device.students.map(student => 
-            `<span class="device-student">${this.escapeHtml(student)}</span>`
-        ).join(', ');
+        container.innerHTML = devices.map(device => {
+            // Форматируем информацию о студентах (уникальные имена)
+            const studentsHtml = device.students.slice(0, 5).map(student => 
+                `<span class="device-student">${this.escapeHtml(student)}</span>`
+            ).join(', ') + (device.students.length > 5 ? `, ... (+${device.students.length - 5})` : '');
 
-        // Форматируем информацию об уроках
-        const lessonsHtml = device.lessons.map(lesson => 
-            `<span class="device-lesson">${this.escapeHtml(lesson)}</span>`
-        ).join(', ');
+            // Форматируем информацию об уроках
+            const lessonsHtml = device.lessons.slice(0, 3).map(lesson => 
+                `<span class="device-lesson">${this.escapeHtml(lesson)}</span>`
+            ).join(', ') + (device.lessons.length > 3 ? '...' : '');
 
-        // Статус активности
-        const statusBadge = device.is_active 
-            ? '<span class="badge-active">🟢 Активен</span>'
-            : '<span class="badge-inactive">⚪ Неактивен</span>';
+            // Статус активности
+            const statusBadge = device.is_active 
+                ? '<span class="badge-active">🟢 Online</span>'
+                : '<span class="badge-inactive">⚪ Offline</span>';
 
-        // Имя устройства или заглушка
-        const displayName = device.device_name 
-            ? `<strong>${this.escapeHtml(device.device_name)}</strong> (${this.escapeHtml(device.device_id)})`
-            : `<span class="device-id-raw">${this.escapeHtml(device.device_id)}</span>`;
+            // Имя устройства (IP Name) или сам IP
+            // device.device_id теперь содержит IP адрес
+            const ipAddress = device.device_id;
+            const displayName = device.device_name 
+                ? `<strong>${this.escapeHtml(device.device_name)}</strong> <span class="device-ip-small">(${this.escapeHtml(ipAddress)})</span>`
+                : `<span class="device-id-raw">${this.escapeHtml(ipAddress)}</span>`;
 
-        return `
-            <div class="device-card ${device.is_active ? 'device-active' : ''}">
-                <div class="device-header">
-                    <div class="device-title">
-                        ${displayName}
-                        ${statusBadge}
+            return `
+                <div class="device-card ${device.is_active ? 'device-active' : ''}">
+                    <div class="device-header">
+                        <div class="device-title">
+                            ${displayName}
+                            ${statusBadge}
+                        </div>
+                        <div class="device-actions">
+                            <button class="btn device-edit" data-ip="${this.escapeHtml(ipAddress)}" data-current-name="${this.escapeHtml(device.device_name || '')}">
+                                ✎ Имя
+                            </button>
+                        </div>
                     </div>
-                    <div class="device-actions">
-                        <button class="btn device-edit" data-device-id="${this.escapeHtml(device.device_id)}">
-                            ✎ Редактировать
-                        </button>
+                    
+                    <div class="device-stats">
+                        <div class="stat-item">
+                            <span class="stat-label">📊 Тестов:</span>
+                            <span class="stat-value">${device.total_tests}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">✅ Сдано:</span>
+                            <span class="stat-value">${device.completed_tests}</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">⭐ Ср. балл:</span>
+                            <span class="stat-value ${this.getGradeClass(device.average_percentage)}">
+                                ${device.average_percentage}%
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="device-details">
+                        ${device.student_count > 0 ? `
+                            <div class="device-detail-section">
+                                <div class="detail-label">👤 Студенты (${device.student_count}):</div>
+                                <div class="detail-value">${studentsHtml}</div>
+                            </div>
+                        ` : ''}
+                        
+                        ${device.lesson_count > 0 ? `
+                            <div class="device-detail-section">
+                                <div class="detail-label">📚 Уроки:</div>
+                                <div class="detail-value">${lessonsHtml}</div>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="device-detail-section" style="margin-top: 5px; font-size: 0.85em; color: #666;">
+                            ${device.last_seen ? `🕒 Посл. актив: ${this.escapeHtml(formatTimestamp(device.last_seen))}` : ''}
+                        </div>
                     </div>
                 </div>
+            `;
+        }).join('');
+
+        // Добавляем обработчики событий для кнопок редактирования
+        container.querySelectorAll('.device-edit').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const ip = btn.getAttribute('data-ip');
+                const currentName = btn.getAttribute('data-current-name');
                 
-                <div class="device-stats">
-                    <div class="stat-item">
-                        <span class="stat-label">📊 Тестов всего:</span>
-                        <span class="stat-value">${device.total_tests}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">✅ Завершено:</span>
-                        <span class="stat-value">${device.completed_tests}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">👥 Активных сессий:</span>
-                        <span class="stat-value">${device.active_sessions}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">⭐ Средний результат:</span>
-                        <span class="stat-value ${this.getGradeClass(device.average_percentage)}">
-                            ${device.average_percentage}%
-                        </span>
-                    </div>
-                </div>
-
-                <div class="device-details">
-                    ${device.student_count > 0 ? `
-                        <div class="device-detail-section">
-                            <div class="detail-label">👤 Студенты (${device.student_count}):</div>
-                            <div class="detail-value">${studentsHtml}</div>
-                        </div>
-                    ` : ''}
-                    
-                    ${device.lesson_count > 0 ? `
-                        <div class="device-detail-section">
-                            <div class="detail-label">📚 Пройденные уроки (${device.lesson_count}):</div>
-                            <div class="detail-value">${lessonsHtml}</div>
-                        </div>
-                    ` : ''}
-                    
-                    ${device.first_seen ? `
-                        <div class="device-detail-section">
-                            <div class="detail-label">🕐 Первый тест:</div>
-                            <div class="detail-value">${this.escapeHtml(device.first_seen)}</div>
-                        </div>
-                    ` : ''}
-                    
-                    ${device.last_seen ? `
-                        <div class="device-detail-section">
-                            <div class="detail-label">🕐 Последний тест:</div>
-                            <div class="detail-value">${this.escapeHtml(device.last_seen)}</div>
-                        </div>
-                    ` : ''}
-                </div>
-            </div>
-        `;
-    }).join('');
-
-    // Добавляем обработчики событий для кнопок редактирования
-    container.querySelectorAll('.device-edit').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-            const deviceId = btn.getAttribute('data-device-id');
-            const currentName = btn.closest('.device-card').querySelector('.device-title strong')?.textContent || '';
-            
-            const name = prompt(`Введите имя для устройства ${deviceId}\n(пусто для удаления имени):`, currentName);
-            
-            if (name === null) return; // Отмена
-            
-            try {
-                const res = await fetch('/api/ip_names', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ip: deviceId, name: name || null})
-                });
-                const j = await res.json();
-                if (j.success) {
-                    this.showNotification(`✅ Имя устройства обновлено!`, 'success');
-                    this.loadStats(); // Обновляем статистику
-                } else {
-                    this.showError('Ошибка: ' + (j.error || 'Неизвестная ошибка'));
+                const name = prompt(`Введите имя для IP ${ip}:`, currentName);
+                
+                if (name === null) return; // Отмена
+                
+                try {
+                    const res = await fetch('/api/ip_names', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {'Content-Type':'application/json'},
+                        // Важно: отправляем поле ip
+                        body: JSON.stringify({ip: ip, name: name.trim() || null})
+                    });
+                    const j = await res.json();
+                    if (j.success) {
+                        this.showNotification(`✅ Имя для IP обновлено!`, 'success');
+                        this.loadStats(); // Обновляем статистику
+                    } else {
+                        this.showError('Ошибка: ' + (j.error || 'Неизвестная ошибка'));
+                    }
+                } catch (err) {
+                    console.error(err);
+                    this.showError('Ошибка запроса к серверу');
                 }
-            } catch (err) {
-                console.error(err);
-                this.showError('Ошибка запроса к серверу');
-            }
+            });
         });
-    });
-}
+    }
 
 // Вспомогательный метод для определения класса оценки
 getGradeClass(percentage) {

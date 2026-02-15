@@ -8,7 +8,6 @@
 </head>
 <body>
     <div class="dashboard">
-        <!-- Шапка -->
         <header class="dashboard-header">
             <div class="header-content">
                 <h1>🎓 Дашборд преподавателя</h1>
@@ -21,7 +20,6 @@
             </div>
         </header>
 
-        <!-- Блок выбора файла урока -->
         <aside class="panel panel--lesson-selector">
             <div class="panel-header">
                 <h2>📚 Выбор файла урока</h2>
@@ -30,8 +28,7 @@
             <div class="panel-body">
                 <div class="lesson-selector-content">
                     <div class="lesson-files-list" id="lesson-files-list">
-                        <!-- Список файлов будет загружен сюда -->
-                    </div>
+                        </div>
                     
                     <div class="current-lesson-info" id="current-lesson-info">
                         <div class="current-lesson-label">Текущий урок:</div>
@@ -41,9 +38,21 @@
             </div>
         </aside>
 
-        <!-- Основной контент -->
         <main class="dashboard-main">
-            <!-- Верхняя строка статистики -->
+            <div class="panel panel--lessons-control">
+                <div class="panel-header">
+                    <h2>⚙️ Управление уроками</h2>
+                </div>
+                <div class="panel-body">
+                    <div id="lessons-control-container" class="lessons-grid">
+                        <div class="empty-state">
+                            <div class="empty-icon">🔒</div>
+                            <p>Данные уроков загружаются...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="stats-grid">
                 <div class="stat-card stat-card--active">
                     <div class="stat-icon">👥</div>
@@ -78,7 +87,6 @@
                 </div>
             </div>
 
-            <!-- Оценки -->
             <div class="grades-grid">
                 <div class="grade-card grade-card--excellent">
                     <div class="grade-icon">5️⃣</div>
@@ -113,9 +121,7 @@
                 </div>
             </div>
 
-            <!-- Активные сессии и недавние тесты -->
             <div class="content-grid">
-                <!-- Активные сессии -->
                 <div class="panel panel--active">
                     <div class="panel-header">
                         <h2>👥 Активные сессии</h2>
@@ -131,7 +137,6 @@
                     </div>
                 </div>
 
-                <!-- Недавние тесты -->
                 <div class="panel panel--recent">
                     <div class="panel-header">
                         <h2>📋 Недавние тесты</h2>
@@ -148,7 +153,6 @@
                 </div>
             </div>
 
-            <!-- Статистика по урокам -->
             <div class="panel panel--lessons">
                 <div class="panel-header">
                     <h2>📚 Статистика по урокам</h2>
@@ -163,22 +167,6 @@
                 </div>
             </div>
 
-            <!-- Уроки — управление доступностью -->
-            <div class="panel panel--lessons-control">
-                <div class="panel-header">
-                    <h2>⚙️ Управление уроками</h2>
-                </div>
-                <div class="panel-body">
-                    <div id="lessons-control-container" class="lessons-grid">
-                        <div class="empty-state">
-                            <div class="empty-icon">🔒</div>
-                            <p>Данные уроков загружаются...</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Группы по IP -->
             <div class="panel panel--ips">
                 <div class="panel-header">
                     <h2>📱 Уникальные устройства</h2>

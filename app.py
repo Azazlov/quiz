@@ -372,6 +372,7 @@ def normalize_log_entry(entry):
     - Убирает избыточные/производные поля
     - Стандартизирует формат timestamp
     - Гарантирует наличие обязательных полей
+    - Сохраняет результаты (детальные ответы)
     """
     # Обязательные поля с безопасными значениями по умолчанию
     normalized = {
@@ -384,7 +385,8 @@ def normalize_log_entry(entry):
         'percentage': round(float(entry.get('percentage', 0.0)), 2),
         'grade': str(entry.get('grade', '2 (Неудовлетворительно)')),
         'elapsed_time': int(entry.get('elapsed_time', 0)),
-        'ip': entry.get('ip')
+        'ip': entry.get('ip'),
+        'results': entry.get('results', []) # Добавлено сохранение деталей ответов
     }
     
     # Стандартизация timestamp → ISO 8601 (полный формат)
@@ -402,13 +404,6 @@ def normalize_log_entry(entry):
             normalized['timestamp'] = datetime.now().isoformat()
     else:
         normalized['timestamp'] = datetime.now().isoformat()
-    
-    # Убираем избыточные поля (хранятся в других источниках или вычисляются)
-    # - elapsed_time_formatted → вычисляется из elapsed_time
-    # - lesson_name → восстанавливается по lesson_id из LESSONS
-    # - ip_name → хранится в отдельном ip_names.json
-    # - start_time → вычисляется как timestamp - elapsed_time
-    # - date → извлекается из timestamp
     
     return normalized
           
@@ -1495,7 +1490,8 @@ def submit_answers():
                 'date': datetime.now().strftime('%Y-%m-%d'),
                 'ip': sessions[session_id].get('ip'),
                 'ip_name': IP_NAMES.get(sessions[session_id].get('device_id')),
-                'start_time': sessions[session_id].get('start_timestamp')
+                'start_time': sessions[session_id].get('start_timestamp'),
+                'results': results # СОХРАНЯЕМ ДЕТАЛИ ОТВЕТОВ
             }
             completed_tests.append(record)
             try:
@@ -1523,20 +1519,7 @@ def submit_answers():
 
 if __name__ == '__main__':
     # При запуске — предложим интерактивно выбрать/объединить файлы тестов (если TTY).
-    # Avoid running twice when Flask debug reloader is enabled by running
-    # the selector only in the reloader child or when no reloader is present.
     try:
-        # should_run_selector = (os.environ.get('WERKZEUG_RUN_MAIN') == 'true') or ('WERKZEUG_RUN_MAIN' not in os.environ)
-        # if should_run_selector:
-        #     print(2)
-        #     created = interactive_test_selector()
-            
-        #     if created:
-        #         print(f"Объединённый файл создан: tests/{created}")
-        #     # Rebuild LESSONS from the selected file (if any)
-        #     if SELECTED_TEST_FILE:
-        #         build_lessons_from_file(SELECTED_TEST_FILE)
-            # Load persisted completed tests from logs.txt and ip names
         load_logs()
         load_ip_names()
     except Exception:

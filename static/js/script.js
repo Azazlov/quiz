@@ -22,8 +22,6 @@ class QuizApp {
         this.setupEventListeners();
     }
     
-    // helper functions are imported from modules/utils.js
-    
 async loadLessons() {
     try {
         const response = await fetch('/api/lessons');
@@ -42,7 +40,6 @@ async loadLessons() {
         lessons.forEach(lesson => {
             const lessonCard = document.createElement('div');
             lessonCard.className = 'lesson-card';
-            // Используем только имя из JSON, так как там уже может быть написано "Занятие 1"
             const disabled = lesson.available === false;
             lessonCard.innerHTML = `
                 <div class="lesson-number">#${lesson.id}</div>
@@ -61,7 +58,6 @@ async loadLessons() {
 }
     
     async startQuiz(lessonId) {
-        // Запрос имени ученика
         const name = prompt('📝 Введите ваше имя для начала теста:', 'Ученик');
         if (!name || name.trim() === '') {
             alert('Пожалуйста, введите ваше имя!');
@@ -72,15 +68,12 @@ async loadLessons() {
         this.currentLessonId = lessonId;
         
         try {
-            // Ensure device_id exists and include it so server can persist a device-unique id
             let deviceId = localStorage.getItem('device_id');
             if (!deviceId) {
-                // generate simple random id
                 deviceId = Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b => b.toString(16).padStart(2,'0')).join('');
                 localStorage.setItem('device_id', deviceId);
             }
 
-            // Создание сессии на сервере
             const response = await fetch('/api/start_session', {
                 method: 'POST',
                 headers: {
@@ -115,11 +108,9 @@ async loadLessons() {
             const questions = await response.json();
             
             if (questions.length > 0) {
-                // 1. Перемешиваем ПОРЯДОК вопросов
                 const indices = Array.from({length: questions.length}, (_, i) => i);
                 this.questionOrderMap = shuffleArray(indices);
                 
-                // 2. Для каждого вопроса в новом порядке перемешиваем ВАРИАНТЫ ответов
                 this.shuffledQuestions = this.questionOrderMap.map(originalIndex => {
                     const question = questions[originalIndex];
                     return shuffleQuestionOptions(question);
@@ -129,7 +120,6 @@ async loadLessons() {
                 this.userAnswers = Array(this.shuffledQuestions.length).fill(null);
                 this.currentQuestionIndex = 0;
                 
-                // Обновляем интерфейс
                 const totalEl = document.getElementById('total-questions');
                 const currentEl = document.getElementById('current-question');
                 if (totalEl) totalEl.textContent = this.shuffledQuestions.length;
@@ -148,7 +138,6 @@ async loadLessons() {
     }
     
     setupEventListeners() {
-        // Кнопки навигации в тесте
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
         const submitBtn = document.getElementById('submit-btn');
@@ -159,20 +148,17 @@ async loadLessons() {
         if (submitBtn) submitBtn.addEventListener('click', () => this.submitQuiz());
         if (restartBtn) restartBtn.addEventListener('click', () => this.restartQuiz());
         
-        // Кнопка добавления вопроса
         const addQuestionBtn = document.getElementById('add-question-btn');
         if (addQuestionBtn) {
             addQuestionBtn.addEventListener('click', () => this.openAddQuestionModal());
         }
         
-        // Модальное окно
         const closeBtn = document.querySelector('.close');
         const addQuestionForm = document.getElementById('add-question-form');
         
         if (closeBtn) closeBtn.addEventListener('click', () => this.closeModal());
         if (addQuestionForm) addQuestionForm.addEventListener('submit', (e) => this.addQuestion(e));
         
-        // Закрытие модалки по клику вне
         window.addEventListener('click', (e) => {
             if (this.modalActive && e.target.classList.contains('modal')) {
                 this.closeModal();
@@ -199,7 +185,6 @@ async loadLessons() {
             <div class="options-container" id="options-container"></div>
         `;
         
-        // Установка текста вопроса через textContent
         const questionTextEl = container.querySelector('.question-text');
         if (questionTextEl) {
             questionTextEl.textContent = shuffledQuestion.question;
@@ -210,12 +195,10 @@ async loadLessons() {
         
         optionsContainer.innerHTML = '';
         
-        // Отображаем ПЕРЕМЕШАННЫЕ варианты ответов
         shuffledQuestion.shuffledOptions.forEach((option, shuffledIndex) => {
             const optionElement = document.createElement('div');
             optionElement.className = 'option';
             
-            // Проверяем, был ли выбран этот вариант
             if (this.userAnswers[this.currentQuestionIndex] === shuffledQuestion.optionMapping[shuffledIndex]) {
                 optionElement.classList.add('selected');
             }
@@ -230,10 +213,8 @@ async loadLessons() {
             optionsContainer.appendChild(optionElement);
         });
         
-        // Логирование просмотра вопроса на сервере
         this.logQuestionToServer();
         
-        // Обновление кнопок навигации
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
         const submitBtn = document.getElementById('submit-btn');
@@ -251,7 +232,6 @@ async loadLessons() {
         }
     }
     
-    // Логирование вопроса на сервер
     async logQuestionToServer() {
         if (!this.sessionId) return;
         
@@ -276,15 +256,12 @@ async loadLessons() {
     selectOption(event, shuffledIndex) {
         const currentQuestion = this.shuffledQuestions[this.currentQuestionIndex];
         
-        // Снятие выделения со всех опций
         document.querySelectorAll('.option').forEach(opt => {
             opt.classList.remove('selected');
         });
         
-        // Выделение выбранной опции
         event.target.closest('.option').classList.add('selected');
         
-        // Сохраняем ОРИГИНАЛЬНЫЙ индекс ответа
         const originalAnswerIndex = currentQuestion.optionMapping[shuffledIndex];
         this.userAnswers[this.currentQuestionIndex] = originalAnswerIndex;
     }
@@ -321,13 +298,11 @@ async loadLessons() {
     
     async submitQuiz() {
         try {
-            // Преобразуем ответы из перемешанного порядка в оригинальный порядок вопросов
             const answersInOriginalOrder = Array(this.questions.length).fill(null);
             this.questionOrderMap.forEach((originalQuestionIndex, shuffledQuestionIndex) => {
                 answersInOriginalOrder[originalQuestionIndex] = this.userAnswers[shuffledQuestionIndex];
             });
             
-            // Отправка ответов
             const response = await fetch('/api/submit', {
                 method: 'POST',
                 headers: {
@@ -343,7 +318,6 @@ async loadLessons() {
             const result = await response.json();
             
             if (result.success) {
-                // Добавляем информацию о перемешанном порядке для корректного отображения результатов
                 result.shuffledOrder = this.questionOrderMap;
                 result.shuffledQuestions = this.shuffledQuestions;
                 this.showResults(result);
@@ -360,7 +334,6 @@ async loadLessons() {
         clearInterval(this.timer);
         this.showScreen('results-screen');
         
-        // Отображение основной информации
         const scoreEl = document.getElementById('score');
         const totalEl = document.getElementById('total');
         const percentageEl = document.getElementById('percentage');
@@ -370,16 +343,13 @@ async loadLessons() {
         if (totalEl) totalEl.textContent = result.total;
         if (percentageEl) percentageEl.textContent = result.percentage;
         
-        // Определение оценки
         const grade = this.calculateGrade(result.percentage);
         if (gradeEl) gradeEl.textContent = `Оценка: ${grade}`;
         
-        // Детальные результаты в ПЕРЕМЕШАННОМ порядке
         const detailedResults = document.getElementById('detailed-results');
         if (detailedResults) {
             detailedResults.innerHTML = '';
             
-            // Отображаем результаты в том порядке, в котором вопросы были показаны ученику
             result.shuffledQuestions.forEach((shuffledQ, shuffledIndex) => {
                 const originalQuestionIndex = result.shuffledOrder[shuffledIndex];
                 const res = result.results.find(r => r.question_id === shuffledQ.id);
@@ -428,12 +398,10 @@ async loadLessons() {
     }
     
     showScreen(screenId) {
-        // Скрытие всех экранов
         document.querySelectorAll('.screen').forEach(screen => {
             screen.classList.remove('active');
         });
         
-        // Показ выбранного экрана
         const screenEl = document.getElementById(screenId);
         if (screenEl) {
             screenEl.classList.add('active');
@@ -491,7 +459,6 @@ async loadLessons() {
             if (result.success) {
                 alert('Вопрос успешно добавлен!');
                 this.closeModal();
-                // Перезагрузка вопросов
                 if (this.currentLessonId) {
                     this.loadQuestionsForLesson(this.currentLessonId);
                 }
@@ -505,7 +472,6 @@ async loadLessons() {
     }
 }
 
-// Инициализация приложения при загрузке страницы
 document.addEventListener('DOMContentLoaded', () => {
     window.quizApp = new QuizApp();
 });

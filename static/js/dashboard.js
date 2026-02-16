@@ -501,12 +501,12 @@ renderTestItem(test) {
 
     // ✅ Формируем отображение модуля и урока
     const moduleDisplay = test.module_name 
-        ? `<span class="test-module">📦 ${this.escapeHtml(test.module_name)}</span>`
+        ? `<span class="test-module">${this.escapeHtml(test.module_name)}</span>`
         : '';
     
     const lessonDisplay = test.lesson_id && test.lesson_name
-        ? `<span class="test-lesson">📚 Урок #${test.lesson_id}: ${this.escapeHtml(test.lesson_name)}</span>`
-        : `<span class="test-lesson">📚 ${this.escapeHtml(test.lesson_name || 'Без названия')}</span>`;
+        ? `<span class="test-lesson">Урок #${test.lesson_id}: ${this.escapeHtml(test.lesson_name)}</span>`
+        : `<span class="test-lesson">${this.escapeHtml(test.lesson_name || 'Без названия')}</span>`;
 
     return `
         <div class="test-item" style="cursor: pointer;" data-test-id="${test.id}">

@@ -181,7 +181,7 @@ def validate_log_entry(entry):
 def load_logs(path=LOG_FILE):
     """Загрузка завершенных тестов из JSON-файла."""
     global completed_tests
-    completed_tests.clear()  # Очищаем перед загрузкой
+    completed_tests.clear()
     
     if not os.path.exists(path):
         print(f"[INFO] Файл логов {path} не найден, будет создан при первой записи")
@@ -210,14 +210,10 @@ def load_logs(path=LOG_FILE):
             if any(t.get('id') == record_id for t in completed_tests):
                 continue
             
-            # ✅ ВАЖНО: Убеждаемся, что lesson_name есть
-            if 'lesson_name' not in record and 'lesson_id' in record:
-                for lesson in LESSONS:
-                    if lesson.get('id') == record['lesson_id']:
-                        record['lesson_name'] = lesson.get('name', f"Урок {record['lesson_id']}")
-                        break
-                if 'lesson_name' not in record:
-                    record['lesson_name'] = f"Урок {record.get('lesson_id', 1)}"
+            # ✅ ВАЖНО: lesson_name уже должен быть в записи (сохранён при submit)
+            # Но если его нет - восстанавливаем из LESSONS (после их загрузки)
+            if 'lesson_name' not in record or not record['lesson_name']:
+                record['lesson_name'] = f"Урок {record.get('lesson_id', 1)}"
             
             completed_tests.append(record)
             loaded_count += 1
@@ -354,6 +350,7 @@ def normalize_log_entry(entry):
     - Стандартизирует формат timestamp
     - Гарантирует наличие обязательных полей
     - Сохраняет результаты (детальные ответы)
+    - ✅ СОХРАНЯЕТ lesson_name
     """
     # Обязательные поля с безопасными значениями по умолчанию
     normalized = {
@@ -361,15 +358,16 @@ def normalize_log_entry(entry):
         'student_name': str(entry.get('student_name', 'Ученик')).strip() or 'Ученик',
         'device_id': entry.get('device_id'),
         'lesson_id': int(entry.get('lesson_id', 1)),
+        'lesson_name': entry.get('lesson_name', f"Урок {entry.get('lesson_id', 1)}"),  # ✅ ДОБАВЛЕНО
         'score': int(entry.get('score', 0)),
         'total': int(entry.get('total', 0)),
         'percentage': round(float(entry.get('percentage', 0.0)), 2),
         'grade': str(entry.get('grade', '2 (Неудовлетворительно)')),
         'elapsed_time': int(entry.get('elapsed_time', 0)),
+        'elapsed_time_formatted': entry.get('elapsed_time_formatted', f"{int(entry.get('elapsed_time', 0)) // 60}:{int(entry.get('elapsed_time', 0)) % 60:02d}"),  # ✅ ДОБАВЛЕНО
         'ip': entry.get('ip'),
-        'results': entry.get('results', []) # Добавлено сохранение деталей ответов
+        'results': entry.get('results', [])
     }
-    
     # Стандартизация timestamp → ISO 8601 (полный формат)
     timestamp = entry.get('timestamp') or entry.get('start_time')
     if timestamp:
@@ -385,7 +383,7 @@ def normalize_log_entry(entry):
             normalized['timestamp'] = datetime.now().isoformat()
     else:
         normalized['timestamp'] = datetime.now().isoformat()
-    
+
     return normalized
           
 def load_questions(lesson_id=None):
@@ -1204,21 +1202,11 @@ def get_dashboard_stats():
         client_ip = data.get('ip', 'unknown')
         ip_name = IP_NAMES.get(client_ip)
 
-        # ✅ Убеждаемся, что lesson_name есть
-        lesson_name = data.get('lesson_name')
-        if not lesson_name:
-            for lesson in LESSONS:
-                if lesson.get('id') == data.get('lesson_id'):
-                    lesson_name = lesson.get('name', f"Урок {data.get('lesson_id')}")
-                    break
-            if not lesson_name:
-                lesson_name = f"Урок {data.get('lesson_id', 1)}"
-
         active_sessions_list.append({
             'session_id': sid,
             'device_id': data.get('device_id'),
             'student_name': data['student_name'],
-            'lesson_name': lesson_name,
+            'lesson_name': data.get('lesson_name', f"Урок {data.get('lesson_id', 1)}"),
             'lesson_id': data['lesson_id'],
             'ip': client_ip,
             'ip_name': ip_name,
@@ -1314,13 +1302,13 @@ def get_dashboard_stats():
 
     unique_devices_output.sort(key=lambda x: (not x['is_active'], x['last_seen'] or ''), reverse=False)
 
-    # 4. Недавние тесты - ✅ Убеждаемся, что lesson_name есть
+    # 4. Недавние тесты - ✅ Восстанавливаем lesson_name если нет
     recent_tests = completed_tests[-20:][::-1]
     for rt in recent_tests:
         rt_ip = rt.get('ip')
         rt['ip_name'] = IP_NAMES.get(rt_ip)
         
-        # Если lesson_name отсутствует, восстанавливаем из LESSONS
+        # ✅ Если lesson_name отсутствует - восстанавливаем из LESSONS
         if 'lesson_name' not in rt or not rt['lesson_name']:
             for lesson in LESSONS:
                 if lesson.get('id') == rt.get('lesson_id'):
@@ -1380,7 +1368,6 @@ def get_dashboard_stats():
         'timestamp': datetime.now().strftime('%H:%M:%S')
     })
 
-# Обновление метода submit_answers для сохранения завершенных тестов
 @app.route('/api/submit', methods=['POST'])
 def submit_answers():
     try:
@@ -1438,34 +1425,27 @@ def submit_answers():
             student_name = sessions[session_id]['student_name']
             elapsed_time = int(time.time() - sessions[session_id]['start_time'])
             
-            # ✅ ВАЖНО: Получаем lesson_name из сессии или LESSONS
-            lesson_name = sessions[session_id].get('lesson_name')
-            if not lesson_name:
-                for lesson in LESSONS:
-                    if lesson.get('id') == lesson_id:
-                        lesson_name = lesson.get('name', f"Урок {lesson_id}")
-                        break
-                if not lesson_name:
-                    lesson_name = f"Урок {lesson_id}"
+            # ✅ ВАЖНО: Берём lesson_name ИЗ СЕССИИ (там он уже сохранён)
+            lesson_name = sessions[session_id].get('lesson_name', f'Урок {lesson_id}')
             
-            # ✅ ВАЖНО: Получаем IP из сессии
+            # ✅ ВАЖНО: Берём IP из сессии
             client_ip = sessions[session_id].get('ip', 'unknown')
             
             record = {
                 'id': str(uuid.uuid4())[:8],
                 'student_name': student_name,
-                'lesson_id': sessions[session_id]['lesson_id'],
-                'lesson_name': lesson_name,  # ✅ Сохраняем название урока
+                'lesson_id': sessions[session_id]['lesson_id'],  # ✅ Сохраняем ID
+                'lesson_name': lesson_name,  # ✅ Сохраняем НАЗВАНИЕ урока
                 'device_id': sessions[session_id].get('device_id'),
                 'score': score,
                 'total': total_questions,
                 'percentage': round(percentage, 2),
                 'grade': grade,
                 'elapsed_time': elapsed_time,
-                'elapsed_time_formatted': f"{elapsed_time // 60}:{elapsed_time % 60:02d}",
-                'timestamp': datetime.now().isoformat(),  # ✅ ISO формат для корректной сортировки
-                'ip': client_ip,
-                'results': results
+                'elapsed_time_formatted': f'{elapsed_time // 60}:{elapsed_time % 60:02d}',
+                'timestamp': datetime.now().isoformat(),  # ✅ ISO формат для сортировки
+                'ip': client_ip,  # ✅ Сохраняем IP
+                'results': results  # ✅ Сохраняем детали ответов
             }
             
             completed_tests.append(record)
@@ -1505,12 +1485,12 @@ if __name__ == '__main__':
         print(f"[WARN] Ошибка при загрузке логов: {e}")
     
     # ✅ Затем выбираем файл урока (это построит LESSONS)
-    try:
-        interactive_test_selector()
-        if SELECTED_TEST_FILE:
-            build_lessons_from_file(SELECTED_TEST_FILE)
-    except Exception as e:
-        print(f"[WARN] Ошибка селектора: {e}")
+    # try:
+    #     interactive_test_selector()
+    #     if SELECTED_TEST_FILE:
+    #         build_lessons_from_file(SELECTED_TEST_FILE)
+    # except Exception as e:
+    #     print(f"[WARN] Ошибка селектора: {e}")
     
     # ✅ После построения LESSONS - восстанавливаем lesson_name в загруженных логах
     for test in completed_tests:

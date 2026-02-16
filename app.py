@@ -1169,7 +1169,7 @@ def teacher_dashboard():
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
-    """Получение статистики для дашборда (Агрегация по IP)"""
+    """Получение статистики для дашборда"""
     current_time = time.time()
     
     # 1. Очистка старых сессий
@@ -1204,7 +1204,7 @@ def get_dashboard_stats():
             'progress_color': '#4CAF50' if progress > 75 else '#FF9800' if progress > 50 else '#F44336'
         })
 
-    # 3. Агрегация данных по IP (Unique Devices)
+    # 3. Агрегация данных по IP
     ip_stats = {}
 
     def get_ip_entry(ip_addr):
@@ -1223,7 +1223,6 @@ def get_dashboard_stats():
             }
         return ip_stats[ip_addr]
 
-    # 3a. Обработка завершенных тестов
     for test in completed_tests:
         ip = test.get('ip')
         if not ip:
@@ -1243,7 +1242,6 @@ def get_dashboard_stats():
             if entry['last_seen'] is None or ts > entry['last_seen']:
                 entry['last_seen'] = ts
 
-    # 3b. Обработка активных сессий
     for s in active_sessions_list:
         ip = s.get('ip')
         if not ip:
@@ -1262,7 +1260,6 @@ def get_dashboard_stats():
             if entry['last_seen'] is None or ts > entry['last_seen']:
                 entry['last_seen'] = ts
 
-    # 3c. Формирование списка unique_devices
     unique_devices_output = []
     for ip, data in ip_stats.items():
         avg_pct = 0
@@ -1293,8 +1290,8 @@ def get_dashboard_stats():
         rt_ip = rt.get('ip')
         rt['ip_name'] = IP_NAMES.get(rt_ip)
 
-    # 5. ✅ Статистика по урокам - ИНИЦИАЛИЗАЦИЯ ПЕРЕД ИСПОЛЬЗОВАНИЕМ
-    lesson_stats = {}  # ← ВАЖНО: Инициализируем ПЕРЕД циклом
+    # 5. Статистика по урокам
+    lesson_stats = {}
     
     for lesson in LESSONS:
         lesson_stats[lesson['id']] = {
@@ -1327,20 +1324,21 @@ def get_dashboard_stats():
         avg_percentage = sum(t['percentage'] for t in completed_tests) / total_completed
         avg_time = sum(t['elapsed_time'] for t in completed_tests) / total_completed
 
+    # ✅ НОВАЯ СИСТЕМА ПОДСЧЁТА ОЦЕНОК
     return jsonify({
         'active_sessions': active_sessions_list,
         'recent_tests': recent_tests,
-        'lesson_stats': list(lesson_stats.values()),  # ← Теперь lesson_stats определён
+        'lesson_stats': list(lesson_stats.values()),
         'unique_devices': unique_devices_output,
         'total_stats': {
             'total_completed': total_completed,
             'total_active': total_active,
             'average_percentage': round(avg_percentage, 1),
             'average_time': round(avg_time, 1),
-            'excellent': len([t for t in completed_tests if t['percentage'] >= 90]),
-            'good': len([t for t in completed_tests if 75 <= t['percentage'] < 90]),
-            'satisfactory': len([t for t in completed_tests if 60 <= t['percentage'] < 75]),
-            'unsatisfactory': len([t for t in completed_tests if t['percentage'] < 60])
+            'excellent': len([t for t in completed_tests if t['percentage'] >= 90]),      # 5
+            'good': len([t for t in completed_tests if 61 <= t['percentage'] < 90]),      # 4 (было 75-89)
+            'satisfactory': len([t for t in completed_tests if 41 <= t['percentage'] < 61]),  # 3 (было 60-74)
+            'unsatisfactory': len([t for t in completed_tests if t['percentage'] <= 40])  # 2 (было <60)
         },
         'timestamp': datetime.now().strftime('%H:%M:%S')
     })
@@ -1390,20 +1388,20 @@ def submit_answers():
         
         percentage = (score / total_questions) * 100 if total_questions > 0 else 0
         
+        # ✅ НОВАЯ СПРАВЕДЛИВАЯ СИСТЕМА ОЦЕНОК
         if percentage >= 90:
             grade = '5 (Отлично)'
-        elif percentage >= 75:
+        elif percentage >= 61:  # Было: 75
             grade = '4 (Хорошо)'
-        elif percentage >= 60:
+        elif percentage >= 41:  # Было: 60
             grade = '3 (Удовлетворительно)'
-        else:
+        else:  # ≤ 40%
             grade = '2 (Неудовлетворительно)'
         
         if session_id in sessions:
             student_name = sessions[session_id]['student_name']
             elapsed_time = int(time.time() - sessions[session_id]['start_time'])
             
-            # ✅ БЕРЁМ module_name И lesson_name ИЗ СЕССИИ
             module_name = sessions[session_id].get('module_name', f"module_{lesson_id}")
             lesson_name = sessions[session_id].get('lesson_name', f"Урок {lesson_id}")
             client_ip = sessions[session_id].get('ip', 'unknown')
@@ -1419,13 +1417,12 @@ def submit_answers():
                 elapsed_time=elapsed_time
             )
             
-            # Сохранение завершенного теста
             record = {
                 'id': str(uuid.uuid4())[:8],
                 'student_name': student_name,
                 'lesson_id': sessions[session_id]['lesson_id'],
                 'lesson_name': sessions[session_id].get('lesson_name', f"Урок {lesson_id}"),
-                'module_name': sessions[session_id].get('module_name', f"module_{lesson_id}"),  # ✅ ДОБАВЛЕНО
+                'module_name': sessions[session_id].get('module_name', f"module_{lesson_id}"),
                 'device_id': sessions[session_id].get('device_id'),
                 'score': score,
                 'total': total_questions,

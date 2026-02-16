@@ -370,10 +370,11 @@ restoreDisplayedBlocks(preservedBlocks) {
     }
 
     getGradeClass(percentage) {
-        if (percentage >= 90) return 'grade-excellent';
-        if (percentage >= 75) return 'grade-good';
-        if (percentage >= 60) return 'grade-satisfactory';
-        return 'grade-unsatisfactory';
+        // ✅ НОВАЯ СПРАВЕДЛИВАЯ СИСТЕМА ОЦЕНОК
+        if (percentage >= 90) return 'grade-excellent';      // 5
+        if (percentage >= 61) return 'grade-good';           // 4 (было 75)
+        if (percentage >= 41) return 'grade-satisfactory';   // 3 (было 60)
+        return 'grade-unsatisfactory';                       // 2 (≤40%)
     }
 
     async loadLessonControls() {
@@ -494,18 +495,16 @@ restoreDisplayedBlocks(preservedBlocks) {
     }
 
 renderTestItem(test) {
-    // Определяем текущее состояние из переменной в JS
     const isVisible = this.displayedBlocks[test.id] === 'block';
     const displayStyle = isVisible ? 'block' : 'none';
     const gradeClass = this.getGradeClass(test.percentage);
-
-    // ✅ Формируем отображение модуля и урока
+    
     const moduleDisplay = test.module_name 
         ? `<span class="test-module">${this.escapeHtml(test.module_name)}</span>`
         : '';
-    
+
     const lessonDisplay = test.lesson_id && test.lesson_name
-        ? `<span class="test-lesson">Урок #${test.lesson_id}: ${this.escapeHtml(test.lesson_name)}</span>`
+        ? `<span class="test-lesson">${this.escapeHtml(test.lesson_name)}</span>`
         : `<span class="test-lesson">${this.escapeHtml(test.lesson_name || 'Без названия')}</span>`;
 
     return `

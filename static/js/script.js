@@ -380,12 +380,13 @@ async loadLessons() {
         return escapeHtml(text);
     }
     
-    calculateGrade(percentage) {
-        if (percentage >= 90) return '5 (Отлично)';
-        if (percentage >= 75) return '4 (Хорошо)';
-        if (percentage >= 60) return '3 (Удовлетворительно)';
-        return '2 (Неудовлетворительно)';
-    }
+calculateGrade(percentage) {
+    // ✅ НОВАЯ СПРАВЕДЛИВАЯ СИСТЕМА ОЦЕНОК
+    if (percentage >= 90) return '5 (Отлично)';
+    if (percentage >= 61) return '4 (Хорошо)';           // Было: 75
+    if (percentage >= 41) return '3 (Удовлетворительно)'; // Было: 60
+    return '2 (Неудовлетворительно)';                     // Было: <60
+}
     
     restartQuiz() {
         this.showScreen('welcome-screen');

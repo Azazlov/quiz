@@ -33,6 +33,8 @@ LESSONS = []
 
 cooldown_devices = {}
 
+completed_tests = []
+
 # Simple admin credentials (stored as hash in code)
 # Change these values as needed. Nickname is plain, password stored as sha256 hex.
 ADMIN_NICK = dotenv.get_key('.env', 'ADMIN_NICK') or os.environ.get('ADMIN_NICK', 'admin')
@@ -177,78 +179,62 @@ def validate_log_entry(entry):
 
 
 def load_logs(path=LOG_FILE):
-    """
-    Загрузка завершенных тестов из JSON-файла.
-    Формат файла: {"completed_tests": [...]}
-    """
+    """Загрузка завершенных тестов из JSON-файла."""
     global completed_tests
-    completed_tests.clear()
+    completed_tests.clear()  # Очищаем перед загрузкой
     
     if not os.path.exists(path):
         print(f"[INFO] Файл логов {path} не найден, будет создан при первой записи")
         return
-    
+
     try:
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        # Проверяем структуру файла
         if not isinstance(data, dict) or 'completed_tests' not in data:
-            print(f"[WARN] Некорректная структура файла {path}, ожидается {{'completed_tests': [...]}}")
+            print(f"[WARN] Некорректная структура файла {path}")
             return
         
         raw_records = data['completed_tests']
-        
         loaded_count = 0
-        invalid_count = 0
-        duplicate_count = 0
         
-        for idx, record in enumerate(raw_records):
-            # Валидация записи
+        for record in raw_records:
             is_valid, error_msg = validate_log_entry(record)
             
             if not is_valid:
-                invalid_count += 1
-                print(f"[WARN] Запись #{idx}: {error_msg}")
-                print(f"    Данные: {str(record)[:150]}...")
+                print(f"[WARN] Пропущена запись: {error_msg}")
                 continue
             
-            # Проверка на дубликаты
+            # Проверка на дубликаты по ID
             record_id = record.get('id')
             if any(t.get('id') == record_id for t in completed_tests):
-                duplicate_count += 1
-                print(f"[WARN] Запись #{idx}: Пропущен дубликат ID={record_id}")
                 continue
+            
+            # ✅ ВАЖНО: Убеждаемся, что lesson_name есть
+            if 'lesson_name' not in record and 'lesson_id' in record:
+                for lesson in LESSONS:
+                    if lesson.get('id') == record['lesson_id']:
+                        record['lesson_name'] = lesson.get('name', f"Урок {record['lesson_id']}")
+                        break
+                if 'lesson_name' not in record:
+                    record['lesson_name'] = f"Урок {record.get('lesson_id', 1)}"
             
             completed_tests.append(record)
             loaded_count += 1
         
         print(f"[INFO] Загружено {loaded_count} записей из {path}")
-        if invalid_count > 0:
-            print(f"[WARN] Пропущено {invalid_count} некорректных записей")
-        if duplicate_count > 0:
-            print(f"[WARN] Пропущено {duplicate_count} дубликатов")
-            
-    except json.JSONDecodeError as je:
-        print(f"[ERROR] Файл {path} поврежден или содержит некорректный JSON: {je}")
-        print(f"[INFO] Файл будет пересоздан при следующей записи")
         
+    except json.JSONDecodeError as je:
+        print(f"[ERROR] Файл {path} поврежден: {je}")
     except Exception as e:
         print(f"[ERROR] Не удалось прочитать логи {path}: {e}")
-        import traceback
-        traceback.print_exc()
 
 
 def append_log_entry(entry, path=LOG_FILE):
-    """
-    Добавление записи в JSON-лог.
-    Читает текущий файл, добавляет запись, перезаписывает файл.
-    """
+    """Добавление записи в JSON-лог."""
     try:
-        # Нормализуем запись
         normalized = normalize_log_entry(entry)
         
-        # Валидация записи перед сохранением
         is_valid, error_msg = validate_log_entry(normalized)
         if not is_valid:
             print(f"[ERROR] Попытка сохранить невалидную запись: {error_msg}")
@@ -260,22 +246,19 @@ def append_log_entry(entry, path=LOG_FILE):
                 with open(path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 
-                # Проверяем структуру
                 if not isinstance(data, dict) or 'completed_tests' not in data:
-                    print(f"[WARN] Некорректная структура {path}, создаю новую")
                     data = {'completed_tests': []}
             except (json.JSONDecodeError, Exception) as e:
                 print(f"[WARN] Ошибка чтения {path}: {e}, создаю новый файл")
                 data = {'completed_tests': []}
         else:
-            # Файл не существует, создаем новый
             data = {'completed_tests': []}
             print(f"[INFO] Создаю новый файл логов: {path}")
         
         # Добавляем запись
         data['completed_tests'].append(normalized)
         
-        # Перезаписываем файл
+        # ✅ ВАЖНО: Перезаписываем файл с правильным кодированием
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
@@ -363,8 +346,6 @@ def save_ip_names(path=IP_NAMES_FILE):
             json.dump(IP_NAMES, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[WARN] Не удалось сохранить {path}: {e}")
-
-LOG_FILE = 'logs.txt'
 
 def normalize_log_entry(entry):
     """
@@ -1195,9 +1176,6 @@ def get_sessions():
         'timestamp': datetime.now().strftime('%H:%M:%S')
     })
 
-# Хранилище завершенных тестов
-completed_tests = []
-
 @app.route('/dashboard')
 def teacher_dashboard():
     print(session)
@@ -1208,7 +1186,7 @@ def teacher_dashboard():
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
-    """Получение статистики для дашборда (Агрегация по IP)"""
+    """Получение статистики для дашборда"""
     current_time = time.time()
     
     # 1. Очистка старых сессий
@@ -1223,15 +1201,24 @@ def get_dashboard_stats():
         total_questions = len(load_questions(data.get('lesson_id')))
         progress = (data.get('questions_answered', 0) / total_questions * 100) if total_questions > 0 else 0
         
-        # Определяем имя по IP
         client_ip = data.get('ip', 'unknown')
         ip_name = IP_NAMES.get(client_ip)
 
+        # ✅ Убеждаемся, что lesson_name есть
+        lesson_name = data.get('lesson_name')
+        if not lesson_name:
+            for lesson in LESSONS:
+                if lesson.get('id') == data.get('lesson_id'):
+                    lesson_name = lesson.get('name', f"Урок {data.get('lesson_id')}")
+                    break
+            if not lesson_name:
+                lesson_name = f"Урок {data.get('lesson_id', 1)}"
+
         active_sessions_list.append({
             'session_id': sid,
-            'device_id': data.get('device_id'), # UUID устройства
+            'device_id': data.get('device_id'),
             'student_name': data['student_name'],
-            'lesson_name': data['lesson_name'],
+            'lesson_name': lesson_name,
             'lesson_id': data['lesson_id'],
             'ip': client_ip,
             'ip_name': ip_name,
@@ -1239,21 +1226,19 @@ def get_dashboard_stats():
             'elapsed_time_formatted': f"{elapsed // 60}:{elapsed % 60:02d}",
             'questions_answered': data.get('questions_answered', 0),
             'start_timestamp': data.get('start_timestamp'),
-            'correct_answers': data.get('correct_answers', 0),
             'total_questions': total_questions,
             'progress': round(progress, 1),
             'progress_color': '#4CAF50' if progress > 75 else '#FF9800' if progress > 50 else '#F44336'
         })
 
-    # 3. Агрегация данных по IP (Unique Devices)
-    # Структура: ip -> { stats }
+    # 3. Агрегация данных по IP
     ip_stats = {}
 
     def get_ip_entry(ip_addr):
         if ip_addr not in ip_stats:
             ip_stats[ip_addr] = {
                 'ip': ip_addr,
-                'device_name': IP_NAMES.get(ip_addr), # Имя из ip_names.json
+                'device_name': IP_NAMES.get(ip_addr),
                 'students': set(),
                 'lessons': set(),
                 'active_sessions': 0,
@@ -1265,10 +1250,11 @@ def get_dashboard_stats():
             }
         return ip_stats[ip_addr]
 
-    # 3a. Обработка завершенных тестов (History)
+    # 3a. Обработка завершенных тестов
     for test in completed_tests:
         ip = test.get('ip')
-        if not ip: continue
+        if not ip:
+            continue
         
         entry = get_ip_entry(ip)
         entry['students'].add(test.get('student_name', 'Unknown'))
@@ -1277,7 +1263,6 @@ def get_dashboard_stats():
         entry['total_tests'] += 1
         entry['total_percentage'] += test.get('percentage', 0)
         
-        # Даты
         ts = test.get('timestamp')
         if ts:
             if entry['first_seen'] is None or ts < entry['first_seen']:
@@ -1285,14 +1270,15 @@ def get_dashboard_stats():
             if entry['last_seen'] is None or ts > entry['last_seen']:
                 entry['last_seen'] = ts
 
-    # 3b. Обработка активных сессий (Active)
+    # 3b. Обработка активных сессий
     for s in active_sessions_list:
         ip = s.get('ip')
-        if not ip: continue
+        if not ip:
+            continue
 
         entry = get_ip_entry(ip)
         entry['active_sessions'] += 1
-        entry['total_tests'] += 1 # Считаем и текущую попытку
+        entry['total_tests'] += 1
         entry['students'].add(s.get('student_name'))
         entry['lessons'].add(s.get('lesson_name'))
         
@@ -1303,7 +1289,7 @@ def get_dashboard_stats():
             if entry['last_seen'] is None or ts > entry['last_seen']:
                 entry['last_seen'] = ts
 
-    # 3c. Формирование списка unique_devices для фронтенда
+    # 3c. Формирование списка unique_devices
     unique_devices_output = []
     for ip, data in ip_stats.items():
         avg_pct = 0
@@ -1311,7 +1297,7 @@ def get_dashboard_stats():
             avg_pct = round(data['total_percentage'] / data['completed_tests'], 1)
         
         unique_devices_output.append({
-            'device_id': ip, # ВАЖНО: ID теперь равен IP
+            'device_id': ip,
             'device_name': data['device_name'],
             'is_active': data['active_sessions'] > 0,
             'total_tests': data['total_tests'],
@@ -1326,15 +1312,22 @@ def get_dashboard_stats():
             'last_seen': data['last_seen']
         })
 
-    # Сортировка: Сначала активные, потом по времени последней активности
     unique_devices_output.sort(key=lambda x: (not x['is_active'], x['last_seen'] or ''), reverse=False)
 
-    # 4. Недавние тесты (для списка Recent)
+    # 4. Недавние тесты - ✅ Убеждаемся, что lesson_name есть
     recent_tests = completed_tests[-20:][::-1]
     for rt in recent_tests:
-        # Обновляем отображаемое имя IP прямо сейчас
         rt_ip = rt.get('ip')
         rt['ip_name'] = IP_NAMES.get(rt_ip)
+        
+        # Если lesson_name отсутствует, восстанавливаем из LESSONS
+        if 'lesson_name' not in rt or not rt['lesson_name']:
+            for lesson in LESSONS:
+                if lesson.get('id') == rt.get('lesson_id'):
+                    rt['lesson_name'] = lesson.get('name', f"Урок {rt.get('lesson_id')}")
+                    break
+            if 'lesson_name' not in rt:
+                rt['lesson_name'] = f"Урок {rt.get('lesson_id', 1)}"
 
     # 5. Статистика по урокам
     lesson_stats = {}
@@ -1364,7 +1357,7 @@ def get_dashboard_stats():
     total_active = len(active_sessions_list)
     avg_percentage = 0
     avg_time = 0
-    
+
     if total_completed > 0:
         avg_percentage = sum(t['percentage'] for t in completed_tests) / total_completed
         avg_time = sum(t['elapsed_time'] for t in completed_tests) / total_completed
@@ -1373,7 +1366,7 @@ def get_dashboard_stats():
         'active_sessions': active_sessions_list,
         'recent_tests': recent_tests,
         'lesson_stats': list(lesson_stats.values()),
-        'unique_devices': unique_devices_output, # Главное изменение
+        'unique_devices': unique_devices_output,
         'total_stats': {
             'total_completed': total_completed,
             'total_active': total_active,
@@ -1390,13 +1383,15 @@ def get_dashboard_stats():
 # Обновление метода submit_answers для сохранения завершенных тестов
 @app.route('/api/submit', methods=['POST'])
 def submit_answers():
-    """Проверка ответов и завершение теста - ОСНОВНОЙ МЕТОД С ЛОГИРОВАНИЕМ"""
     try:
         data = request.get_json()
         user_answers = data.get('answers', [])
         lesson_id = data.get('lesson_id', 1)
         session_id = data.get('session_id')
-
+        
+        if session_id not in sessions:
+            return jsonify({'success': False, 'error': 'Сессия не найдена'}), 400
+            
         session_data = sessions[session_id]
         session_data['completed'] = True
         session_data['end_time'] = time.time()
@@ -1408,28 +1403,13 @@ def submit_answers():
         total_questions = len(questions)
         results = []
         
-        # Логирование КАЖДОГО ответа
-        print(f"\n{Fore.CYAN + Style.BRIGHT}📝 Детальная проверка ответов:")
-        print(f"{Fore.CYAN}{'─'*80}")
-        
         for i, question in enumerate(questions):
             user_answer = user_answers[i] if i < len(user_answers) else None
             correct_answer = question['correct_answer']
             is_correct = user_answer == correct_answer
             
-            # Получение текста ответов
             user_answer_text = question['options'][user_answer] if user_answer is not None else 'Не отвечено'
             correct_answer_text = question['options'][correct_answer]
-            
-            # Логирование каждого ответа
-            status = '✅' if is_correct else '❌'
-            status_color = Fore.GREEN if is_correct else Fore.RED
-            answer_color = Fore.CYAN if is_correct else Fore.YELLOW
-            
-            print(f"{status_color}{status} {Fore.WHITE}Вопрос {i+1}: {question['question'][:60]}...")
-            print(f"   {answer_color}Ваш ответ: {user_answer_text}")
-            print(f"   {Fore.GREEN}Правильно: {correct_answer_text}")
-            print()
             
             if is_correct:
                 score += question.get('points', 1)
@@ -1443,11 +1423,8 @@ def submit_answers():
                 'options': question['options']
             })
         
-        print(f"{Fore.CYAN}{'─'*80}\n")
-        
         percentage = (score / total_questions) * 100 if total_questions > 0 else 0
         
-        # Расчет оценки
         if percentage >= 90:
             grade = '5 (Отлично)'
         elif percentage >= 75:
@@ -1457,28 +1434,28 @@ def submit_answers():
         else:
             grade = '2 (Неудовлетворительно)'
         
-        # Логирование результатов
         if session_id in sessions:
             student_name = sessions[session_id]['student_name']
             elapsed_time = int(time.time() - sessions[session_id]['start_time'])
             
-            log_event(
-                session_id,
-                'SUBMIT',
-                f'Тест завершен',
-                score=score,
-                total=total_questions,
-                percentage=round(percentage, 2),
-                grade=grade,
-                elapsed_time=elapsed_time
-            )
-            # Сохранение завершенного теста (в память и в лог-файл)
+            # ✅ ВАЖНО: Получаем lesson_name из сессии или LESSONS
+            lesson_name = sessions[session_id].get('lesson_name')
+            if not lesson_name:
+                for lesson in LESSONS:
+                    if lesson.get('id') == lesson_id:
+                        lesson_name = lesson.get('name', f"Урок {lesson_id}")
+                        break
+                if not lesson_name:
+                    lesson_name = f"Урок {lesson_id}"
+            
+            # ✅ ВАЖНО: Получаем IP из сессии
+            client_ip = sessions[session_id].get('ip', 'unknown')
+            
             record = {
                 'id': str(uuid.uuid4())[:8],
-                'student_id': session_id,
                 'student_name': student_name,
                 'lesson_id': sessions[session_id]['lesson_id'],
-                'lesson_name': sessions[session_id]['lesson_name'],
+                'lesson_name': lesson_name,  # ✅ Сохраняем название урока
                 'device_id': sessions[session_id].get('device_id'),
                 'score': score,
                 'total': total_questions,
@@ -1486,20 +1463,18 @@ def submit_answers():
                 'grade': grade,
                 'elapsed_time': elapsed_time,
                 'elapsed_time_formatted': f"{elapsed_time // 60}:{elapsed_time % 60:02d}",
-                'timestamp': datetime.now().strftime('%H:%M:%S'),
-                'date': datetime.now().strftime('%Y-%m-%d'),
-                'ip': sessions[session_id].get('ip'),
-                'ip_name': IP_NAMES.get(sessions[session_id].get('device_id')),
-                'start_time': sessions[session_id].get('start_timestamp'),
-                'results': results # СОХРАНЯЕМ ДЕТАЛИ ОТВЕТОВ
+                'timestamp': datetime.now().isoformat(),  # ✅ ISO формат для корректной сортировки
+                'ip': client_ip,
+                'results': results
             }
-            completed_tests.append(record)
-            try:
-                append_log_entry(record)
-            except Exception:
-                print('[WARN] Не удалось записать запись в logs.txt')
             
-            # Очистка сессии
+            completed_tests.append(record)
+            
+            try:
+                append_log_entry(record)  # ✅ Сохраняем в файл
+            except Exception as e:
+                print(f'[WARN] Не удалось записать запись в {LOG_FILE}: {e}')
+            
             del sessions[session_id]
         
         return jsonify({
@@ -1510,6 +1485,7 @@ def submit_answers():
             'grade': grade,
             'results': results
         })
+        
     except Exception as e:
         log_event('unknown', 'ERROR', f'Ошибка при проверке ответов: {str(e)}')
         import traceback
@@ -1518,14 +1494,34 @@ def submit_answers():
 
 
 if __name__ == '__main__':
-    # При запуске — предложим интерактивно выбрать/объединить файлы тестов (если TTY).
+    # ✅ ВАЖНО: Сначала инициализируем completed_tests
+    completed_tests = []
+    
     try:
+        # ✅ Загружаем логи ДО выбора урока
         load_logs()
         load_ip_names()
-    except Exception:
-        # не мешаем запуску сервера в случае ошибок в селекторе
-        pass
-
+    except Exception as e:
+        print(f"[WARN] Ошибка при загрузке логов: {e}")
+    
+    # ✅ Затем выбираем файл урока (это построит LESSONS)
+    try:
+        interactive_test_selector()
+        if SELECTED_TEST_FILE:
+            build_lessons_from_file(SELECTED_TEST_FILE)
+    except Exception as e:
+        print(f"[WARN] Ошибка селектора: {e}")
+    
+    # ✅ После построения LESSONS - восстанавливаем lesson_name в загруженных логах
+    for test in completed_tests:
+        if 'lesson_name' not in test or not test['lesson_name']:
+            for lesson in LESSONS:
+                if lesson.get('id') == test.get('lesson_id'):
+                    test['lesson_name'] = lesson.get('name', f"Урок {test.get('lesson_id')}")
+                    break
+            if 'lesson_name' not in test:
+                test['lesson_name'] = f"Урок {test.get('lesson_id', 1)}"
+    
     print(f"\n{Fore.GREEN + Style.BRIGHT}🚀 Сервер запускается...")
     print(f"{Fore.CYAN}📚 Доступные уроки:")
     for lesson in LESSONS:
@@ -1534,5 +1530,5 @@ if __name__ == '__main__':
     print(f"{Fore.YELLOW}📊 Дашборд: {Fore.WHITE + Style.BRIGHT}http://localhost:80/dashboard")
     print(f"{Fore.YELLOW}📈 API статистики: {Fore.WHITE + Style.BRIGHT}http://localhost:80/api/dashboard/stats")
     print(f"\n{Fore.GREEN + Style.BRIGHT}{'─'*80}\n")
-    
+
     app.run(debug=True, host='0.0.0.0', port=80)

@@ -494,30 +494,34 @@ renderTestItem(test) {
     // 1. Определяем текущее состояние из переменной в JS
     const isVisible = this.displayedBlocks[test.id] === 'block';
     const displayStyle = isVisible ? 'block' : 'none';
-    
     // Подготовка классов или стилей
-    const gradeClass = this.getGradeClass(test.percentage); // Предполагаем, что такой метод есть
+    const gradeClass = this.getGradeClass(test.percentage);
 
+    // Формируем отображение урока: номер + название
+    const lessonDisplay = test.lesson_id 
+        ? `📚 Урок #${test.lesson_id}: ${this.escapeHtml(test.lesson_name || 'Без названия')}`
+        : `📚 ${this.escapeHtml(test.lesson_name || 'Не указан')}`;
+    console.log(test)
     return `
-        <div class="test-item" style="cursor: pointer;" data-test-id="${test.id}">
-            <div class="test-header">
-                <span class="test-name">${this.escapeHtml(test.student_name)}${test.ip_name ? ' (' + this.escapeHtml(test.ip_name) + ')' : ''}</span>
-                <span class="test-id">ID: ${this.escapeHtml(test.id || '')}</span>
-                <span class="test-time">${test.timestamp && test.timestamp.length > 11 ? formatTimestamp(test.timestamp) : test.timestamp}</span>
-            </div>
-            <div class="test-info">
-                <div class="test-lesson">${this.escapeHtml(test.lesson_name)}</div>
-                <div class="test-meta">IP: ${this.escapeHtml(test.ip || 'unknown')} • Device: ${this.escapeHtml(test.device_id || '')}</div>
-                <div class="test-score ${gradeClass}">
+         <div class= "test-item " style= "cursor: pointer; " data-test-id= "${test.id} " >
+             <div class= "test-header " >
+                 <span class= "test-name " >${this.escapeHtml(test.student_name)}${test.ip_name ? ' (' + this.escapeHtml(test.ip_name) + ')' : ''} </span >
+                 <span class= "test-id " >ID: ${this.escapeHtml(test.id || '')} </span >
+                 <span class= "test-time " >${test.timestamp  && test.timestamp.length  > 11 ? formatTimestamp(test.timestamp) : test.timestamp} </span >
+             </div >
+             <div class= "test-info " >
+                 <div class= "test-lesson" >${lessonDisplay} </div >
+                 <div class= "test-meta" >IP: ${this.escapeHtml(test.ip || 'unknown')} • Device: ${this.escapeHtml(test.device_id || '')} </div >
+                 <div class= "test-score ${gradeClass} " >
                     ${test.score}/${test.total} (${test.percentage}%)
-                    <span class="test-grade">${test.grade}</span>
-                </div>
-                <div class="test-duration">⏱️ ${test.elapsed_time_formatted || this.formatElapsedTime(test.elapsed_time)}</div>
-            </div>
-            <div class="test-details" style="display: ${displayStyle}">
+                     <span class= "test-grade " >${test.grade} </span >
+                 </div >
+                 <div class= "test-duration " >⏱️ ${test.elapsed_time_formatted || this.formatElapsedTime(test.elapsed_time)} </div >
+             </div >
+             <div class= "test-details " style= "display: ${displayStyle} " >
                 ${this.renderDetails(test)} 
-            </div>
-        </div>
+             </div >
+         </div >
     `;
 }
 

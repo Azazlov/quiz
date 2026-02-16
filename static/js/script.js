@@ -33,7 +33,7 @@ async loadLessons() {
         lessonsList.innerHTML = '';
         
         if (!lessons || lessons.length === 0) {
-            lessonsList.innerHTML = '<p class="no-lessons">Уроки не найдены. Выберите файл в консоли сервера.</p>';
+            lessonsList.innerHTML = '<a href="/dashboard" class="no-lessons">Уроки не найдены. Выберите файл в консоли сервера.</p>';
             return;
         }
         

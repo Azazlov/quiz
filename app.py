@@ -943,15 +943,23 @@ def get_dashboard_stats():
 # Запуск приложения
 # ────────────────────────────────────────────
 if __name__ == '__main__':
+    import warnings
+    import logging
+    
+    # ✅ Подавляем warnings Werkzeug
+    warnings.filterwarnings('ignore', category=Warning, module='werkzeug')
+    logging.getLogger('werkzeug').setLevel(logging.ERROR)
+    
+    # ✅ Инициализация
     completed_tests = []
     
     try:
         load_logs()
         load_ip_names()
     except Exception as e:
-        print(f"[WARN] Ошибка загрузки: {e}")
+        print(f"[WARN] Ошибка при загрузке логов: {e}")
 
-    # Восстановление lesson_name в загруженных логах
+    # ✅ Восстановление lesson_name в загруженных логах
     for test in completed_tests:
         if 'lesson_name' not in test or not test['lesson_name']:
             for lesson in LESSONS:
@@ -961,12 +969,16 @@ if __name__ == '__main__':
             if 'lesson_name' not in test:
                 test['lesson_name'] = f"Урок {test.get('lesson_id', 1)}"
 
+    # ✅ Красивый вывод без предупреждений
     print(f"\n{Fore.GREEN + Style.BRIGHT}🚀 Сервер запускается...")
     print(f"{Fore.CYAN}📚 Доступные уроки: {len(LESSONS)}")
     for lesson in LESSONS:
         print(f"   {lesson['id']}. {lesson['name']}")
-    print(f"\n{Fore.YELLOW}📡 Сервер: http://localhost:80")
-    print(f"{Fore.YELLOW}📊 Дашборд: http://localhost:80/dashboard")
+    print(f"\n{Fore.YELLOW}📡 Сервер: {Fore.WHITE + Style.BRIGHT}http://localhost:80")
+    print(f"{Fore.YELLOW}📊 Дашборд: {Fore.WHITE + Style.BRIGHT}http://localhost:80/dashboard")
+    print(f"{Fore.YELLOW}📈 API: {Fore.WHITE + Style.BRIGHT}http://localhost:80/api/dashboard/stats")
     print(f"\n{Fore.GREEN + Style.BRIGHT}{'─'*80}\n")
 
-    app.run(debug=True, host='0.0.0.0', port=80)
+    # ✅ Запуск сервера (для разработки)
+    # Для production используйте: waitress-serve --port=80 app:app
+    app.run(debug=True, host='0.0.0.0', port=80, use_reloader=False)

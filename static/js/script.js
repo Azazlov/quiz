@@ -13,52 +13,55 @@ class QuizApp {
         this.currentLessonId = null;
         this.sessionId = null;
         this.studentName = null;
-        
         this.init();
     }
-    
+
     init() {
         this.loadLessons();
         this.setupEventListeners();
     }
-    
-async loadLessons() {
-    try {
-        const response = await fetch('/api/lessons');
-        const lessons = await response.json();
-        
-        const lessonsList = document.getElementById('lessons-list');
-        if (!lessonsList) return;
-        
-        lessonsList.innerHTML = '';
-        
-        if (!lessons || lessons.length === 0) {
-            lessonsList.innerHTML = '<a href="/dashboard" class="no-lessons">Уроки не найдены. Выберите файл в консоли сервера.</p>';
-            return;
-        }
-        
-        lessons.forEach(lesson => {
-            const lessonCard = document.createElement('div');
-            lessonCard.className = 'lesson-card';
-            const disabled = lesson.available === false;
-            lessonCard.innerHTML = `
-                <div class="lesson-number">#${lesson.id}</div>
-                <h3>${lesson.name}${disabled ? ' <span class="locked">(Недоступен)</span>' : ''}</h3>
-            `;
-            if (!disabled) {
-                lessonCard.addEventListener('click', () => this.startQuiz(lesson.id));
-            } else {
-                lessonCard.classList.add('lesson-unavailable');
+
+    async loadLessons() {
+        try {
+            const response = await fetch('/api/lessons');
+            const lessons = await response.json();
+            const lessonsList = document.getElementById('lessons-list');
+            
+            if (!lessonsList) return;
+            
+            lessonsList.innerHTML = '';
+            
+            if (!lessons || lessons.length === 0) { 
+                lessonsList.innerHTML = '<a href="/dashboard" class="no-lessons">Уроки не найдены. Выберите файл в консоли сервера.</a>';
+                return;
             }
-            lessonsList.appendChild(lessonCard);
-        });
-    } catch (error) {
-        console.error('Ошибка загрузки уроков:', error);
+            
+            lessons.forEach(lesson => {
+                const lessonCard = document.createElement('div');
+                lessonCard.className = 'lesson-card';
+                const disabled = lesson.available === false;
+                
+                lessonCard.innerHTML = `
+                    <div class="lesson-number">#${lesson.id}</div>
+                    <h3>${escapeHtml(lesson.name)}${disabled ? ' <span class="locked">(Недоступен)</span>' : ''}</h3>
+                `;
+                
+                if (!disabled) {
+                    lessonCard.addEventListener('click', () => this.startQuiz(lesson.id));
+                } else {
+                    lessonCard.classList.add('lesson-unavailable');
+                }
+                
+                lessonsList.appendChild(lessonCard);
+            });
+        } catch (error) {
+            console.error('Ошибка загрузки уроков:', error);
+        }
     }
-}
-    
+
     async startQuiz(lessonId) {
         const name = prompt('📝 Введите ваше имя для начала теста:', 'Ученик');
+        
         if (!name || name.trim() === '') {
             alert('Пожалуйста, введите ваше имя!');
             return;
@@ -69,16 +72,17 @@ async loadLessons() {
         
         try {
             let deviceId = localStorage.getItem('device_id');
+            
             if (!deviceId) {
-                deviceId = Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b => b.toString(16).padStart(2,'0')).join('');
+                deviceId = Array.from(crypto.getRandomValues(new Uint8Array(8)))
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
                 localStorage.setItem('device_id', deviceId);
             }
 
             const response = await fetch('/api/start_session', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     student_name: this.studentName,
                     lesson_id: lessonId,
@@ -101,14 +105,14 @@ async loadLessons() {
             alert('Не удалось начать тест. Проверьте подключение к серверу.');
         }
     }
-    
+
     async loadQuestionsForLesson(lessonId) {
         try {
             const response = await fetch(`/api/questions/${lessonId}`);
             const questions = await response.json();
             
             if (questions.length > 0) {
-                const indices = Array.from({length: questions.length}, (_, i) => i);
+                const indices = Array.from({ length: questions.length }, (_, i) => i);
                 this.questionOrderMap = shuffleArray(indices);
                 
                 this.shuffledQuestions = this.questionOrderMap.map(originalIndex => {
@@ -122,6 +126,7 @@ async loadLessons() {
                 
                 const totalEl = document.getElementById('total-questions');
                 const currentEl = document.getElementById('current-question');
+                
                 if (totalEl) totalEl.textContent = this.shuffledQuestions.length;
                 if (currentEl) currentEl.textContent = '1';
                 
@@ -136,28 +141,26 @@ async loadLessons() {
             this.showScreen('welcome-screen');
         }
     }
-    
+
     setupEventListeners() {
-        const prevBtn = document.getElementById('prev-btn');
-        const nextBtn = document.getElementById('next-btn');
-        const submitBtn = document.getElementById('submit-btn');
-        const restartBtn = document.getElementById('restart-btn');
-        
-        if (prevBtn) prevBtn.addEventListener('click', () => this.prevQuestion());
-        if (nextBtn) nextBtn.addEventListener('click', () => this.nextQuestion());
-        if (submitBtn) submitBtn.addEventListener('click', () => this.submitQuiz());
-        if (restartBtn) restartBtn.addEventListener('click', () => this.restartQuiz());
-        
-        const addQuestionBtn = document.getElementById('add-question-btn');
-        if (addQuestionBtn) {
-            addQuestionBtn.addEventListener('click', () => this.openAddQuestionModal());
-        }
+        const bindClick = (id, handler) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', handler);
+        };
+
+        bindClick('prev-btn', () => this.prevQuestion());
+        bindClick('next-btn', () => this.nextQuestion());
+        bindClick('submit-btn', () => this.submitQuiz());
+        bindClick('restart-btn', () => this.restartQuiz());
+        bindClick('add-question-btn', () => this.openAddQuestionModal());
         
         const closeBtn = document.querySelector('.close');
-        const addQuestionForm = document.getElementById('add-question-form');
-        
         if (closeBtn) closeBtn.addEventListener('click', () => this.closeModal());
-        if (addQuestionForm) addQuestionForm.addEventListener('submit', (e) => this.addQuestion(e));
+        
+        const addQuestionForm = document.getElementById('add-question-form');
+        if (addQuestionForm) {
+            addQuestionForm.addEventListener('submit', (e) => this.addQuestion(e));
+        }
         
         window.addEventListener('click', (e) => {
             if (this.modalActive && e.target.classList.contains('modal')) {
@@ -165,7 +168,7 @@ async loadLessons() {
             }
         });
     }
-    
+
     showQuestion() {
         const shuffledQuestion = this.shuffledQuestions[this.currentQuestionIndex];
         const container = document.getElementById('question-container');
@@ -214,7 +217,10 @@ async loadLessons() {
         });
         
         this.logQuestionToServer();
-        
+        this.updateNavigationButtons();
+    }
+
+    updateNavigationButtons() {
         const prevBtn = document.getElementById('prev-btn');
         const nextBtn = document.getElementById('next-btn');
         const submitBtn = document.getElementById('submit-btn');
@@ -222,16 +228,12 @@ async loadLessons() {
         if (prevBtn) prevBtn.disabled = this.currentQuestionIndex === 0;
         
         if (nextBtn && submitBtn) {
-            if (this.currentQuestionIndex === this.shuffledQuestions.length - 1) {
-                nextBtn.style.display = 'none';
-                submitBtn.style.display = 'block';
-            } else {
-                nextBtn.style.display = 'block';
-                submitBtn.style.display = 'none';
-            }
+            const isLastQuestion = this.currentQuestionIndex === this.shuffledQuestions.length - 1;
+            nextBtn.style.display = isLastQuestion ? 'none' : 'block';
+            submitBtn.style.display = isLastQuestion ? 'block' : 'none';
         }
     }
-    
+
     async logQuestionToServer() {
         if (!this.sessionId) return;
         
@@ -239,9 +241,7 @@ async loadLessons() {
             const shuffledQuestion = this.shuffledQuestions[this.currentQuestionIndex];
             await fetch('/api/log_question', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     session_id: this.sessionId,
                     question_num: this.currentQuestionIndex + 1,
@@ -252,7 +252,7 @@ async loadLessons() {
             console.error('Ошибка логирования вопроса:', error);
         }
     }
-    
+
     selectOption(event, shuffledIndex) {
         const currentQuestion = this.shuffledQuestions[this.currentQuestionIndex];
         
@@ -265,21 +265,21 @@ async loadLessons() {
         const originalAnswerIndex = currentQuestion.optionMapping[shuffledIndex];
         this.userAnswers[this.currentQuestionIndex] = originalAnswerIndex;
     }
-    
+
     prevQuestion() {
         if (this.currentQuestionIndex > 0) {
             this.currentQuestionIndex--;
             this.showQuestion();
         }
     }
-    
+
     nextQuestion() {
         if (this.currentQuestionIndex < this.shuffledQuestions.length - 1) {
             this.currentQuestionIndex++;
             this.showQuestion();
         }
     }
-    
+
     startTimer() {
         this.seconds = 0;
         clearInterval(this.timer);
@@ -289,25 +289,24 @@ async loadLessons() {
             const minutes = Math.floor(this.seconds / 60);
             const seconds = this.seconds % 60;
             const timerEl = document.getElementById('timer');
+            
             if (timerEl) {
-                timerEl.textContent = 
-                    `Прошло времени: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                timerEl.textContent = `Прошло времени: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
             }
         }, 1000);
     }
-    
+
     async submitQuiz() {
         try {
             const answersInOriginalOrder = Array(this.questions.length).fill(null);
+            
             this.questionOrderMap.forEach((originalQuestionIndex, shuffledQuestionIndex) => {
                 answersInOriginalOrder[originalQuestionIndex] = this.userAnswers[shuffledQuestionIndex];
             });
             
             const response = await fetch('/api/submit', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     answers: answersInOriginalOrder,
                     lesson_id: this.currentLessonId,
@@ -329,22 +328,24 @@ async loadLessons() {
             alert('Произошла ошибка при отправке результатов.');
         }
     }
-    
+
     showResults(result) {
         clearInterval(this.timer);
         this.showScreen('results-screen');
         
-        const scoreEl = document.getElementById('score');
-        const totalEl = document.getElementById('total');
-        const percentageEl = document.getElementById('percentage');
+        const setEl = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+        
+        setEl('score', result.score);
+        setEl('total', result.total);
+        setEl('percentage', result.percentage);
+        
         const gradeEl = document.getElementById('grade');
-        
-        if (scoreEl) scoreEl.textContent = result.score;
-        if (totalEl) totalEl.textContent = result.total;
-        if (percentageEl) percentageEl.textContent = result.percentage;
-        
-        const grade = this.calculateGrade(result.percentage);
-        if (gradeEl) gradeEl.textContent = `Оценка: ${grade}`;
+        if (gradeEl) {
+            gradeEl.textContent = `Оценка: ${this.calculateGrade(result.percentage)}`;
+        }
         
         const detailedResults = document.getElementById('detailed-results');
         if (detailedResults) {
@@ -364,10 +365,10 @@ async loadLessons() {
                 const userOption = userOptionIndex !== null ? shuffledQ.options[userOptionIndex] : 'Не отвечено';
                 
                 resultItem.innerHTML = `
-                    <div class="result-question">${shuffledIndex + 1}. ${this.escapeHtml(shuffledQ.question)}</div>
+                    <div class="result-question">${shuffledIndex + 1}. ${escapeHtml(shuffledQ.question)}</div>
                     <div class="result-answer">
-                        ${res.is_correct ? '✅' : '❌'} Ваш ответ: ${this.escapeHtml(userOption)}
-                        ${!res.is_correct ? `<br>Правильный ответ: ${this.escapeHtml(correctOption)}` : ''}
+                        ${res.is_correct ? '✅' : '❌'} Ваш ответ: ${escapeHtml(userOption)}
+                        ${!res.is_correct ? `<br>Правильный ответ: ${escapeHtml(correctOption)}` : ''}
                     </div>
                 `;
                 
@@ -375,19 +376,15 @@ async loadLessons() {
             });
         }
     }
-    
-    escapeHtml(text) {
-        return escapeHtml(text);
-    }
-    
-calculateGrade(percentage) {
+
     // ✅ НОВАЯ СПРАВЕДЛИВАЯ СИСТЕМА ОЦЕНОК
-    if (percentage >= 90) return '5 (Отлично)';
-    if (percentage >= 61) return '4 (Хорошо)';           // Было: 75
-    if (percentage >= 41) return '3 (Удовлетворительно)'; // Было: 60
-    return '2 (Неудовлетворительно)';                     // Было: <60
-}
-    
+    calculateGrade(percentage) {
+        if (percentage >= 90) return '5 (Отлично)';
+        if (percentage >= 61) return '4 (Хорошо)';           // Было: 75
+        if (percentage >= 41) return '3 (Удовлетворительно)'; // Было: 60
+        return '2 (Неудовлетворительно)';                     // Было: <60
+    }
+
     restartQuiz() {
         this.showScreen('welcome-screen');
         this.currentQuestionIndex = 0;
@@ -397,7 +394,7 @@ calculateGrade(percentage) {
         this.sessionId = null;
         this.studentName = null;
     }
-    
+
     showScreen(screenId) {
         document.querySelectorAll('.screen').forEach(screen => {
             screen.classList.remove('active');
@@ -410,7 +407,7 @@ calculateGrade(percentage) {
             console.error(`Экран ${screenId} не найден!`);
         }
     }
-    
+
     openAddQuestionModal() {
         const modal = document.getElementById('add-question-modal');
         if (modal) {
@@ -418,7 +415,7 @@ calculateGrade(percentage) {
             this.modalActive = true;
         }
     }
-    
+
     closeModal() {
         const modal = document.getElementById('add-question-modal');
         if (modal) {
@@ -428,30 +425,29 @@ calculateGrade(percentage) {
         const form = document.getElementById('add-question-form');
         if (form) form.reset();
     }
-    
+
     async addQuestion(event) {
         event.preventDefault();
         
-        const questionText = document.getElementById('question-text').value;
+        const getVal = (id) => document.getElementById(id)?.value || '';
+        const questionText = getVal('question-text');
         const optionInputs = document.querySelectorAll('.option-input');
-        const correctOption = document.querySelector('input[name="correct-option"]:checked').value;
-        const points = parseInt(document.getElementById('points').value);
+        const correctOption = document.querySelector('input[name="correct-option"]:checked')?.value;
+        const points = parseInt(getVal('points')) || 1;
         
         const options = Array.from(optionInputs).map(input => input.value);
         
         const newQuestion = {
             question: questionText,
             options: options,
-            correct_answer: parseInt(correctOption),
+            correct_answer: parseInt(correctOption) || 0,
             points: points
         };
         
         try {
             const response = await fetch('/api/add_question', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newQuestion)
             });
             

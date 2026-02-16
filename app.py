@@ -1,431 +1,177 @@
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 import hashlib
 import json
-import dotenv
 import os
 import time
 import uuid
 from datetime import datetime
-from colorama import init, Fore, Back, Style
+from colorama import init, Fore, Style
 import glob
 import sys
-from collections import defaultdict
+from functools import lru_cache
 
-# Инициализация цветного вывода
+# ────────────────────────────────────────────
+# Инициализация
+# ────────────────────────────────────────────
 init(autoreset=True)
-
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key')
 
-# Selected test file path (set at startup via CLI selector or TEST_FILE env)
+# ────────────────────────────────────────────
+# Константы
+# ────────────────────────────────────────────
+LOG_FILE = 'logs.json'
+IP_NAMES_FILE = 'ip_names.json'
+TESTS_DIR = 'tests'
+SESSION_TIMEOUT = 3600  # 1 час
+COOLDOWN_TIME = 600     # 10 минут
+
+# ────────────────────────────────────────────
+# Глобальные переменные
+# ────────────────────────────────────────────
 SELECTED_TEST_FILE = None
-# Allow selecting test file via environment variable (useful for non-interactive runs)
-env_test = os.environ.get('TEST_FILE')
-if env_test:
-    candidate = os.path.join('tests', env_test) if not os.path.isabs(env_test) else env_test
-    if os.path.exists(candidate):
-        SELECTED_TEST_FILE = candidate
-        print(f"[INFO] SELECTED_TEST_FILE set from TEST_FILE env: {SELECTED_TEST_FILE}")
-
-# Список уроков
-# В начале app.py удаляем старый список LESSONS и инициализируем пустым
 LESSONS = []
-
-cooldown_devices = {}
-lesson_name = ''
+sessions = {}
 completed_tests = []
+IP_NAMES = {}
+cooldown_devices = {}
 
-# Simple admin credentials (stored as hash in code)
-# Change these values as needed. Nickname is plain, password stored as sha256 hex.
-ADMIN_NICK = dotenv.get_key('.env', 'ADMIN_NICK') or os.environ.get('ADMIN_NICK', 'admin')
-ADMIN_PASS_HASH = dotenv.get_key('.env', 'ADMIN_PASSWORD') or os.environ.get('ADMIN_PASS_HASH', hashlib.sha256('secret123'.encode()).hexdigest())
+# ────────────────────────────────────────────
+# Админские учётные данные
+# ────────────────────────────────────────────
+ADMIN_NICK = os.environ.get('ADMIN_NICK', 'admin')
+ADMIN_PASS_HASH = os.environ.get(
+    'ADMIN_PASS_HASH',
+    hashlib.sha256('secret123'.encode()).hexdigest()
+)
+
+# ────────────────────────────────────────────
+# Система оценок (справедливая)
+# ────────────────────────────────────────────
+def calculate_grade(percentage):
+    """Расчёт оценки по проценту правильных ответов"""
+    if percentage >= 90:
+        return '5 (Отлично)'
+    elif percentage >= 61:
+        return '4 (Хорошо)'
+    elif percentage >= 41:
+        return '3 (Удовлетворительно)'
+    else:
+        return '2 (Неудовлетворительно)'
+
+def get_grade_class(percentage):
+    """CSS класс для оценки"""
+    if percentage >= 90:
+        return 'grade-excellent'
+    elif percentage >= 61:
+        return 'grade-good'
+    elif percentage >= 41:
+        return 'grade-satisfactory'
+    return 'grade-unsatisfactory'
+
+# ────────────────────────────────────────────
+# Работа с уроками
+# ────────────────────────────────────────────
+@lru_cache(maxsize=10)
+def load_questions_cached(lesson_id, file_path):
+    """Кэшированная загрузка вопросов"""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        if 'lessons' in data and lesson_id is not None:
+            lessons = data.get('lessons', [])
+            idx = max(0, lesson_id - 1)
+            if 0 <= idx < len(lessons):
+                return lessons[idx].get('questions', [])
+        
+        qs_all = data.get('questions', [])
+        lessons_count = len(LESSONS)
+        if qs_all and lessons_count > 0 and len(qs_all) % lessons_count == 0:
+            chunk = len(qs_all) // lessons_count
+            idx = max(0, lesson_id - 1)
+            return qs_all[idx * chunk:(idx + 1) * chunk]
+        
+        return qs_all
+    except Exception:
+        return []
+
+def load_questions(lesson_id=None):
+    """Загрузка вопросов с кэшированием"""
+    if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
+        return load_questions_cached(lesson_id, SELECTED_TEST_FILE)
+    
+    if lesson_id is not None:
+        filename = f'{TESTS_DIR}/lesson{lesson_id}.json'
+        if os.path.exists(filename):
+            try:
+                with open(filename, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return data.get('questions', [])
+            except Exception:
+                pass
+    return []
 
 def build_lessons_from_file(file_path):
+    """Построение списка уроков из файла"""
     global LESSONS
     if not file_path or not os.path.exists(file_path):
         return
-
+    
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     except Exception:
         return
 
-    # Если в файле есть структура 'lessons'
     if 'lessons' in data:
         lessons_arr = data.get('lessons', [])
-        new_lessons = []
-        for l in lessons_arr:
-            # Берем имя урока из JSON, если его нет — генерируем по ID
-            name = l.get('name') or f"Занятие {l.get('id')}"
-            # поддержка флага доступности урока
-            available = l.get('available', True)
-            new_lessons.append({'id': l.get('id'), 'name': name, 'available': available})
-        
-        if new_lessons:
-            LESSONS = new_lessons
+        LESSONS = [
+            {
+                'id': l.get('id'),
+                'name': l.get('name') or f"Занятие {l.get('id')}",
+                'available': l.get('available', True)
+            }
+            for l in lessons_arr
+        ]
+        if LESSONS:
             print(f"[INFO] Уроки загружены из файла: {len(LESSONS)} шт.")
             return
 
-    # Если файла нет 'lessons', попробуем по-умному построить уроки из плоского массива 'questions'
     qs = data.get('questions', [])
     if qs:
-        # Попробуем определить количество уроков
-        # 1) Если есть поле _source у вопросов — разделим по уникальным источникам
-        sources = [q.get('_source') for q in qs if isinstance(q, dict) and q.get('_source')]
-        unique_sources = []
-        for s in sources:
-            if s not in unique_sources:
-                unique_sources.append(s)
-
-        if unique_sources:
-            new_lessons = []
-            for i, src in enumerate(unique_sources, start=1):
-                new_lessons.append({'id': i, 'name': f"Занятие {i}: {src}", 'available': True})
-            LESSONS = new_lessons
+        sources = list(dict.fromkeys(
+            q.get('_source') for q in qs 
+            if isinstance(q, dict) and q.get('_source')
+        ))
+        
+        if sources:
+            LESSONS = [
+                {'id': i, 'name': f"Занятие {i}: {src}", 'available': True}
+                for i, src in enumerate(sources, start=1)
+            ]
             print(f"[INFO] Уроки построены по _source: {len(LESSONS)} шт.")
             return
 
-
-        lessons_count = len(LESSONS) if len(LESSONS) > 0 else 1
-
-        # Если в данный момент LESSONS пуст, и мы не смогли определить count — попробуем равномерно разделить
+        lessons_count = len(LESSONS) if LESSONS else 1
         if lessons_count == 1 and len(qs) > 1:
-            # Если количество вопросов кратно 4 или 8, выберем более разумное число
             if len(qs) % 8 == 0:
                 lessons_count = 8
             elif len(qs) % 4 == 0:
                 lessons_count = 4
 
-        # Построим LESSONS с именами "Занятие N"
-        new_lessons = [{'id': i, 'name': f"Занятие {i}", 'available': True} for i in range(1, lessons_count + 1)]
-        LESSONS = new_lessons
+        LESSONS = [
+            {'id': i, 'name': f"Занятие {i}", 'available': True}
+            for i in range(1, lessons_count + 1)
+        ]
         print(f"[INFO] Уроки построены из плоского списка: {len(LESSONS)} шт.")
-        return
-
-    # Ничего не получилось — оставляем LESSONS пустым
-    print("[WARN] Не удалось построить LESSONS из файла", file_path)
-
-# Хранилище сессий учеников
-sessions = {}
-
-# IP name mapping (persistent)
-IP_NAMES_FILE = 'ip_names.json'
-IP_NAMES = {}
-
-# Изменяем путь к файлу логов
-LOG_FILE = 'logs.json'  # Было: 'logs.txt'
-
-def validate_log_entry(entry):
-    """Валидация записи лога"""
-    required_fields = ['id', 'student_name', 'lesson_id', 'score', 'total', 'percentage', 'grade', 'elapsed_time', 'timestamp']
-    
-    for field in required_fields:
-        if field not in entry:
-            return False, f"Отсутствует обязательное поле: {field}"
-    
-    # ✅ module_name - опциональное поле, но если есть - должно быть строкой
-    if 'module_name' in entry and not isinstance(entry['module_name'], str):
-        entry['module_name'] = str(entry['module_name'])
-    
-    # ... остальная валидация без изменений ...
-    
-    return True, None
-
-
-def load_logs(path=LOG_FILE):
-    """
-    Загрузка завершенных тестов из JSON-файла.
-    Формат файла: {"completed_tests": [...]}
-    """
-    global completed_tests
-    completed_tests.clear()
-    
-    if not os.path.exists(path):
-        print(f"[INFO] Файл логов {path} не найден, будет создан при первой записи")
-        return
-
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        # ✅ ИСПРАВЛЕНО: убран лишний пробел в 'completed_tests'
-        if not isinstance(data, dict) or 'completed_tests' not in data:
-            print(f"[WARN] Некорректная структура файла {path}, ожидается {{'completed_tests': [...]}}")
-            return
-        
-        raw_records = data['completed_tests']
-        
-        loaded_count = 0
-        invalid_count = 0
-        duplicate_count = 0
-        
-        for idx, record in enumerate(raw_records):
-            # Валидация записи
-            is_valid, error_msg = validate_log_entry(record)
-            
-            if not is_valid:
-                invalid_count += 1
-                print(f"[WARN] Запись #{idx}: {error_msg}")
-                print(f"    Данные: {str(record)[:150]}...")
-                continue
-            
-            # Проверка на дубликаты
-            record_id = record.get('id')
-            if any(t.get('id') == record_id for t in completed_tests):
-                duplicate_count += 1
-                print(f"[WARN] Запись #{idx}: Пропущен дубликат ID={record_id}")
-                continue
-            
-            # ✅ ВОССТАНАВЛИВАЕМ module_name И lesson_name ЕСЛИ НЕТ
-            if 'module_name' not in record or not record['module_name']:
-                record['module_name'] = f"module_{record.get('lesson_id', 1)}"
-            
-            if 'lesson_name' not in record or not record['lesson_name']:
-                for lesson in LESSONS:
-                    if lesson.get('id') == record.get('lesson_id'):
-                        record['lesson_name'] = lesson.get('name', f"Урок {record.get('lesson_id')}")
-                        break
-                if 'lesson_name' not in record:
-                    record['lesson_name'] = f"Урок {record.get('lesson_id', 1)}"
-            
-            completed_tests.append(record)
-            loaded_count += 1
-        
-        print(f"[INFO] Загружено {loaded_count} записей из {path}")
-        if invalid_count > 0:
-            print(f"[WARN] Пропущено {invalid_count} некорректных записей")
-        if duplicate_count > 0:
-            print(f"[WARN] Пропущено {duplicate_count} дубликатов")
-            
-    except json.JSONDecodeError as je:
-        print(f"[ERROR] Файл {path} поврежден или содержит некорректный JSON: {je}")
-        print(f"[INFO] Файл будет пересоздан при следующей записи")
-        
-    except Exception as e:
-        print(f"[ERROR] Не удалось прочитать логи {path}: {e}")
-        import traceback
-        traceback.print_exc()
-
-
-def append_log_entry(entry, path=LOG_FILE):
-    """Добавление записи в JSON-лог."""
-    try:
-        normalized = normalize_log_entry(entry)
-        
-        is_valid, error_msg = validate_log_entry(normalized)
-        if not is_valid:
-            print(f"[ERROR] Попытка сохранить невалидную запись: {error_msg}")
-            return False
-        
-        # Загружаем текущие данные или создаем новый файл
-        if os.path.exists(path):
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                
-                if not isinstance(data, dict) or 'completed_tests' not in data:
-                    data = {'completed_tests': []}
-            except (json.JSONDecodeError, Exception) as e:
-                print(f"[WARN] Ошибка чтения {path}: {e}, создаю новый файл")
-                data = {'completed_tests': []}
-        else:
-            data = {'completed_tests': []}
-            print(f"[INFO] Создаю новый файл логов: {path}")
-        
-        # Добавляем запись
-        data['completed_tests'].append(normalized)
-        
-        # ✅ ВАЖНО: Перезаписываем файл с правильным кодированием
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        
-        print(f"[INFO] Запись сохранена: ID={normalized.get('id')}, ученик={normalized.get('student_name')}")
-        return True
-        
-    except Exception as e:
-        print(f"[ERROR] Не удалось записать в лог {path}: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
-
-
-def backup_logs(max_backups=5):
-    """
-    Создание резервной копии файла логов.
-    Сохраняет до max_backups копий с суффиксом .backup.N
-    """
-    if not os.path.exists(LOG_FILE):
-        return
-    
-    import shutil
-    from datetime import datetime
-    
-    # Создаем имя для бэкапа
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    backup_name = f"{LOG_FILE}.backup.{timestamp}"
-    
-    try:
-        shutil.copy2(LOG_FILE, backup_name)
-        print(f"[INFO] Создана резервная копия: {backup_name}")
-        
-        # Удаляем старые бэкапы, оставляя только max_backups последних
-        backup_pattern = f"{LOG_FILE}.backup.*"
-        backups = sorted(glob.glob(backup_pattern), reverse=True)
-        
-        for old_backup in backups[max_backups:]:
-            os.remove(old_backup)
-            print(f"[INFO] Удалена старая резервная копия: {old_backup}")
-            
-    except Exception as e:
-        print(f"[WARN] Не удалось создать резервную копию: {e}")
-
-
-def get_logs_stats():
-    """
-    Возвращает статистику по логам.
-    """
-    if not os.path.exists(LOG_FILE):
-        return {'exists': False, 'size': 0, 'record_count': 0}
-    
-    try:
-        with open(LOG_FILE, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        records = data.get('completed_tests', [])
-        file_size = os.path.getsize(LOG_FILE)
-        
-        return {
-            'exists': True,
-            'size': file_size,
-            'size_human': f"{file_size / 1024:.2f} KB",
-            'record_count': len(records),
-            'last_record': records[-1] if records else None
-        }
-    except Exception as e:
-        return {'exists': True, 'error': str(e), 'record_count': 0}
-
-def load_ip_names(path=IP_NAMES_FILE):
-    global IP_NAMES
-    if not os.path.exists(path):
-        IP_NAMES = {}
-        return
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            IP_NAMES = json.load(f)
-        print(f"[INFO] Загружено имён IP: {len(IP_NAMES)}")
-    except Exception as e:
-        print(f"[WARN] Не удалось загрузить {path}: {e}")
-        IP_NAMES = {}
-
-def save_ip_names(path=IP_NAMES_FILE):
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(IP_NAMES, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"[WARN] Не удалось сохранить {path}: {e}")
-
-def normalize_log_entry(entry):
-    """Нормализует запись перед сохранением"""
-    normalized = {
-        'id': entry.get('id') or str(uuid.uuid4())[:8],
-        'student_name': str(entry.get('student_name', 'Ученик')).strip() or 'Ученик',
-        'device_id': entry.get('device_id'),
-        'lesson_id': int(entry.get('lesson_id', 1)),
-        'lesson_name': entry.get('lesson_name', f"Урок {entry.get('lesson_id', 1)}"),
-        'module_name': entry.get('module_name', f"module_{entry.get('lesson_id', 1)}"),  # ✅ ДОБАВЛЕНО
-        'score': int(entry.get('score', 0)),
-        'total': int(entry.get('total', 0)),
-        'percentage': round(float(entry.get('percentage', 0.0)), 2),
-        'grade': str(entry.get('grade', '2 (Неудовлетворительно)')),
-        'elapsed_time': int(entry.get('elapsed_time', 0)),
-        'elapsed_time_formatted': entry.get('elapsed_time_formatted', f"{int(entry.get('elapsed_time', 0)) // 60}:{int(entry.get('elapsed_time', 0)) % 60:02d}"),
-        'ip': entry.get('ip'),
-        'results': entry.get('results', [])
-    }
-    
-    # Стандартизация timestamp
-    timestamp = entry.get('timestamp') or entry.get('start_time')
-    if timestamp:
-        try:
-            if 'T' in str(timestamp):
-                normalized['timestamp'] = timestamp
-            else:
-                today = datetime.now().strftime('%Y-%m-%d')
-                normalized['timestamp'] = f"{today}T{timestamp}"
-        except:
-            normalized['timestamp'] = datetime.now().isoformat()
-    else:
-        normalized['timestamp'] = datetime.now().isoformat()
-
-    return normalized
-          
-def load_questions(lesson_id=None):
-    """Load questions from the selected test file if set, otherwise fall back
-    to the legacy `tests/lesson{lesson_id}.json` behaviour.
-    """
-    # If a test file was selected at startup, use it.
-    if SELECTED_TEST_FILE:
-        if os.path.exists(SELECTED_TEST_FILE):
-            try:
-                with open(SELECTED_TEST_FILE, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-
-                # If merged file contains per-lesson grouping
-                if 'lessons' in data and lesson_id is not None:
-                    lessons = data.get('lessons', [])
-                    idx = max(0, lesson_id - 1)
-                    if 0 <= idx < len(lessons):
-                        qs = lessons[idx].get('questions', [])
-                        print(f"[DEBUG] load_questions -> using lessons[{idx}] from {SELECTED_TEST_FILE}, questions={len(qs)}")
-                        return qs
-                    else:
-                        # If requested lesson_id out of range, fallback to empty
-                        return []
-
-                # If no 'lessons' grouping, but flat 'questions' exists, try to split evenly
-                qs_all = data.get('questions', [])
-                if qs_all and lesson_id is not None:
-                    # try to split into equal chunks per configured LESSONS
-                    lessons_count = len(LESSONS)
-                    if lessons_count > 0 and len(qs_all) % lessons_count == 0:
-                        chunk = len(qs_all) // lessons_count
-                        idx = max(0, lesson_id - 1)
-                        start = idx * chunk
-                        end = start + chunk
-                        subset = qs_all[start:end]
-                        print(f"[DEBUG] load_questions -> split flat questions into chunks, returning {len(subset)} questions for lesson {lesson_id}")
-                        return subset
-
-                # Fallback: return all questions if no lesson_id provided
-                print(f"[DEBUG] load_questions -> returning all questions from {SELECTED_TEST_FILE}, total={len(qs_all)}")
-                return qs_all
-            except Exception:
-                print(f"[DEBUG] load_questions -> failed reading SELECTED_TEST_FILE={SELECTED_TEST_FILE}")
-                return []
-
-    # Fallback: legacy behaviour by lesson id
-    if lesson_id is not None:
-        filename = f'tests/lesson{lesson_id}.json'
-        if os.path.exists(filename):
-            with open(filename, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            return data.get('questions', [])
-
-    return []
-
 
 def scan_test_files():
-    """Return list of json files in the `tests` directory."""
-    files = sorted(glob.glob(os.path.join('tests', '*.json')))
-    return files
-
+    """Сканирование файлов тестов"""
+    return sorted(glob.glob(os.path.join(TESTS_DIR, '*.json')))
 
 def merge_test_files(selected_paths, out_filename):
-    """Merge selected JSON test files (each expected to have 'questions') into one JSON file.
-
-    Reassigns incremental numeric `id` to questions to avoid duplicates.
-    """
+    """Объединение файлов тестов"""
     lessons_payload = []
     merged_questions = []
 
@@ -438,103 +184,42 @@ def merge_test_files(selected_paths, out_filename):
             continue
 
         questions = data.get('questions') or []
-        # assign new ids within this lesson starting at 1
         lesson_questions = []
-        next_id = 1
-        for q in questions:
+        for i, q in enumerate(questions, start=1):
             nq = dict(q)
-            nq['id'] = next_id
+            nq['id'] = i
             nq['_source'] = os.path.basename(path)
             lesson_questions.append(nq)
             merged_questions.append(nq)
-            next_id += 1
 
         lessons_payload.append({
             'file': os.path.basename(path),
             'questions': lesson_questions
         })
 
-    out_path = os.path.join('tests', out_filename)
+    out_path = os.path.join(TESTS_DIR, out_filename)
     payload = {
         'title': out_filename,
         'available': True,
         'lessons': lessons_payload,
         'questions': merged_questions
     }
+    
     try:
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        print(f"Создан объединённый файл: {out_path} ({len(merged_questions)} вопросов, {len(lessons_payload)} уроков)")
+        print(f"Создан объединённый файл: {out_path}")
     except Exception as e:
         print(f"Ошибка при записи {out_path}: {e}")
 
-
-def interactive_test_selector():
-    """Interactive selector at startup.
-
-    Allows choosing a single existing `tests/*.json` file to use as the lesson,
-    or selecting multiple files to merge into a new file. Returns the selected
-    filename (basename) or None.
-    """
-    global SELECTED_TEST_FILE
-
-    if not sys.stdin.isatty():
-        return None
-
-    files = scan_test_files()
-    if not files:
-        print('Файлы тестов не найдены в папке tests/.')
-        return None
-
-    print('\nНайденные JSON файлы в tests/:')
-    for i, p in enumerate(files, start=1):
-        print(f"  {i}. {os.path.basename(p)}")
-
-    print('\nВыберите один номер для использования как урок (например: 2),')
-    # print('или укажите несколько номеров через запятую для объединения (например: 1,2).')
-    # print('Нажмите Enter чтобы пропустить:')
-    sel = input('> ').strip()
-    if not sel:
-        return None
-
-    try:
-        indices = [int(x.strip()) for x in sel.split(',') if x.strip()]
-    except ValueError:
-        print('Некорректный ввод.')
-        return None
-
-    selected = []
-    for idx in indices:
-        if 1 <= idx <= len(files):
-            selected.append(files[idx - 1])
-
-    if not selected:
-        print('Нет выбранных файлов.')
-        return None
-
-    if len(selected) == 1:
-        # single file selected -> use it as the lesson
-        SELECTED_TEST_FILE = selected[0]
-        print(f"Выбран файл урока: {os.path.basename(SELECTED_TEST_FILE)}")
-        return os.path.basename(SELECTED_TEST_FILE)
-
-    # multiple selected -> merge
-    print('Введите имя выходного файла (например web+css.json):')
-    out_name = input('> ').strip()
-    if not out_name:
-        out_name = 'web+css.json'
-
-    merge_test_files(selected, out_name)
-    SELECTED_TEST_FILE = os.path.join('tests', out_name)
-    return out_name
-
+# ────────────────────────────────────────────
+# Логирование событий
+# ────────────────────────────────────────────
 def log_event(session_id, event_type, message, **kwargs):
-    """Логирование событий в терминал с цветами"""
+    """Логирование событий в терминал"""
     timestamp = datetime.now().strftime('%H:%M:%S')
-    session_info = sessions.get(session_id, {})
-    student_name = session_info.get('student_name', 'Неизвестный ученик')
+    student_name = sessions.get(session_id, {}).get('student_name', 'Неизвестный')
     
-    # Цвета для разных типов событий
     colors = {
         'START': Fore.GREEN + Style.BRIGHT,
         'QUESTION': Fore.BLUE + Style.BRIGHT,
@@ -543,50 +228,175 @@ def log_event(session_id, event_type, message, **kwargs):
         'ERROR': Fore.RED + Style.BRIGHT,
         'INFO': Fore.WHITE + Style.BRIGHT
     }
-    
     color = colors.get(event_type, Fore.WHITE)
-    
-    # Формирование сообщения
+
     if event_type == 'START':
         print(f"\n{'='*80}")
         print(f"{color}🎓 [{timestamp}] {event_type}: {student_name}")
         print(f"{color}📝 {message}")
         print(f"{'='*80}\n")
-        
-    elif event_type == 'QUESTION':
-        question_num = kwargs.get('question_num', '?')
-        total_questions = kwargs.get('total_questions', '?')
-        print(f"{color}❓ [{timestamp}] {student_name} - Вопрос {question_num}/{total_questions}: {message}")
-        
-    elif event_type == 'ANSWER':
-        question_num = kwargs.get('question_num', '?')
-        is_correct = kwargs.get('is_correct', False)
-        user_answer = kwargs.get('user_answer', '?')
-        correct_answer = kwargs.get('correct_answer', '?')
-        status = '✅ Правильно' if is_correct else '❌ Неправильно'
-        status_color = Fore.GREEN if is_correct else Fore.RED
-        print(f"{Fore.WHITE}📝 [{timestamp}] {student_name} - Ответ {question_num}: {status_color}{status}")
-        print(f"{Fore.WHITE}   Ваш ответ: {user_answer} | Правильный: {correct_answer}")
-        
     elif event_type == 'SUBMIT':
-        score = kwargs.get('score', 0)
-        total = kwargs.get('total', 0)
-        percentage = kwargs.get('percentage', 0)
-        grade = kwargs.get('grade', '-')
-        elapsed_time = kwargs.get('elapsed_time', 0)
         print(f"\n{'─'*80}")
         print(f"{color}🏁 [{timestamp}] ТЕСТ ЗАВЕРШЕН: {student_name}")
-        print(f"{color}📊 Результаты: {Fore.WHITE + Style.BRIGHT}{score}/{total} ({percentage}%)")
-        print(f"{color}⭐ Оценка: {Fore.WHITE + Style.BRIGHT}{grade}")
-        print(f"{color}⏱️  Время: {Fore.WHITE + Style.BRIGHT}{elapsed_time} сек")
+        print(f"{color}📊 Результаты: {kwargs.get('score')}/{kwargs.get('total')} ({kwargs.get('percentage')}%)")
+        print(f"{color}⭐ Оценка: {kwargs.get('grade')}")
         print(f"{'─'*80}\n")
-        
     elif event_type == 'ERROR':
         print(f"{color}❌ [{timestamp}] ОШИБКА: {message}")
-        
     else:
         print(f"{color}[{timestamp}] {event_type}: {message}")
 
+# ────────────────────────────────────────────
+# Работа с логами
+# ────────────────────────────────────────────
+def validate_log_entry(entry):
+    """Валидация записи лога"""
+    required = ['id', 'student_name', 'lesson_id', 'score', 'total', 'percentage', 'grade', 'elapsed_time', 'timestamp']
+    
+    for field in required:
+        if field not in entry:
+            return False, f"Отсутствует поле: {field}"
+    
+    try:
+        if entry['score'] < 0 or entry['total'] <= 0 or entry['score'] > entry['total']:
+            return False, "Некорректные score/total"
+        if not (0 <= entry['percentage'] <= 100):
+            return False, "percentage вне диапазона 0-100"
+    except (ValueError, TypeError):
+        return False, "Ошибка типов данных"
+    
+    return True, None
+
+def normalize_log_entry(entry):
+    """Нормализация записи перед сохранением"""
+    timestamp = entry.get('timestamp') or entry.get('start_time')
+    if timestamp and 'T' not in str(timestamp):
+        timestamp = f"{datetime.now().strftime('%Y-%m-%d')}T{timestamp}"
+    elif not timestamp:
+        timestamp = datetime.now().isoformat()
+
+    return {
+        'id': entry.get('id') or str(uuid.uuid4())[:8],
+        'student_name': str(entry.get('student_name', 'Ученик')).strip() or 'Ученик',
+        'device_id': entry.get('device_id'),
+        'lesson_id': int(entry.get('lesson_id', 1)),
+        'lesson_name': entry.get('lesson_name', f"Урок {entry.get('lesson_id', 1)}"),
+        'module_name': entry.get('module_name', f"module_{entry.get('lesson_id', 1)}"),
+        'score': int(entry.get('score', 0)),
+        'total': int(entry.get('total', 0)),
+        'percentage': round(float(entry.get('percentage', 0.0)), 2),
+        'grade': str(entry.get('grade', calculate_grade(0))),
+        'elapsed_time': int(entry.get('elapsed_time', 0)),
+        'elapsed_time_formatted': f"{int(entry.get('elapsed_time', 0)) // 60}:{int(entry.get('elapsed_time', 0)) % 60:02d}",
+        'timestamp': timestamp,
+        'ip': entry.get('ip'),
+        'results': entry.get('results', [])
+    }
+
+def load_logs(path=LOG_FILE):
+    """Загрузка логов из файла"""
+    global completed_tests
+    completed_tests.clear()
+    
+    if not os.path.exists(path):
+        print(f"[INFO] Файл логов {path} не найден")
+        return
+
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        if not isinstance(data, dict) or 'completed_tests' not in data:
+            print(f"[WARN] Некорректная структура {path}")
+            return
+        
+        seen_ids = set()
+        for record in data['completed_tests']:
+            is_valid, _ = validate_log_entry(record)
+            if not is_valid:
+                continue
+            
+            record_id = record.get('id')
+            if record_id in seen_ids:
+                continue
+            seen_ids.add(record_id)
+            
+            # Восстановление module_name и lesson_name
+            if 'module_name' not in record:
+                record['module_name'] = f"module_{record.get('lesson_id', 1)}"
+            if 'lesson_name' not in record:
+                for lesson in LESSONS:
+                    if lesson.get('id') == record.get('lesson_id'):
+                        record['lesson_name'] = lesson.get('name', f"Урок {record.get('lesson_id')}")
+                        break
+                if 'lesson_name' not in record:
+                    record['lesson_name'] = f"Урок {record.get('lesson_id', 1)}"
+            
+            completed_tests.append(record)
+        
+        print(f"[INFO] Загружено {len(completed_tests)} записей")
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] Файл {path} повреждён: {e}")
+    except Exception as e:
+        print(f"[ERROR] Ошибка чтения логов: {e}")
+
+def append_log_entry(entry, path=LOG_FILE):
+    """Добавление записи в лог"""
+    try:
+        normalized = normalize_log_entry(entry)
+        is_valid, error_msg = validate_log_entry(normalized)
+        if not is_valid:
+            print(f"[ERROR] Невалидная запись: {error_msg}")
+            return False
+        
+        data = {'completed_tests': []}
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if not isinstance(data, dict) or 'completed_tests' not in data:
+                    data = {'completed_tests': []}
+            except Exception:
+                data = {'completed_tests': []}
+        
+        data['completed_tests'].append(normalized)
+        
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        print(f"[INFO] Запись сохранена: ID={normalized.get('id')}")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Ошибка записи в лог: {e}")
+        return False
+
+# ────────────────────────────────────────────
+# IP имена
+# ────────────────────────────────────────────
+def load_ip_names(path=IP_NAMES_FILE):
+    """Загрузка имён IP"""
+    global IP_NAMES
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                IP_NAMES = json.load(f)
+            print(f"[INFO] Загружено имён IP: {len(IP_NAMES)}")
+        except Exception:
+            IP_NAMES = {}
+    else:
+        IP_NAMES = {}
+
+def save_ip_names(path=IP_NAMES_FILE):
+    """Сохранение имён IP"""
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(IP_NAMES, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[WARN] Не удалось сохранить {path}: {e}")
+
+# ────────────────────────────────────────────
+# Маршруты
+# ────────────────────────────────────────────
 @app.route('/')
 def index():
     return render_template('index.html', lessons=LESSONS)
@@ -598,15 +408,15 @@ def login():
         nick = request.form.get('nick', '')
         password = request.form.get('password', '')
         pw_hash = hashlib.sha256(password.encode()).hexdigest()
+        
         if nick == ADMIN_NICK and pw_hash == ADMIN_PASS_HASH:
             session['admin'] = True
             session['admin_nick'] = nick
             return redirect(url_for('teacher_dashboard'))
         else:
             error = 'Неправильный ник или пароль.'
-
+    
     return render_template('login.html', error=error)
-
 
 @app.route('/logout')
 def logout():
@@ -614,80 +424,69 @@ def logout():
     session.pop('admin_nick', None)
     return redirect(url_for('login'))
 
+@app.route('/dashboard')
+def teacher_dashboard():
+    if not session.get('admin'):
+        return redirect(url_for('login'))
+    return render_template('dashboard.html')
+
 @app.route('/api/lessons', methods=['GET'])
 def get_lessons():
-    # Ensure each lesson has 'available' flag
-    out = []
-    for l in LESSONS:
-        copy = dict(l)
-        if 'available' not in copy:
-            copy['available'] = True
-        out.append(copy)
-    return jsonify(out)
-
+    return jsonify([
+        {**l, 'available': l.get('available', True)}
+        for l in LESSONS
+    ])
 
 @app.route('/api/lessons/availability', methods=['POST'])
 def set_lesson_availability():
-    # Only admin can toggle availability
     if not session.get('admin'):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-
+    
     data = request.get_json() or {}
     lesson_id = data.get('lesson_id')
     available = data.get('available')
+    
     if lesson_id is None or available is None:
-        return jsonify({'success': False, 'error': 'Missing lesson_id or available'}), 400
+        return jsonify({'success': False, 'error': 'Missing parameters'}), 400
 
-    updated = False
     for l in LESSONS:
         if l.get('id') == lesson_id:
             l['available'] = bool(available)
-            updated = True
             break
-
-    if not updated:
-        return jsonify({'success': False, 'error': 'Lesson not found'}), 404
-
-    # Persist availability into the selected merged file if present
-    try:
-        if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
+    
+    # Сохранение в файл
+    if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
+        try:
             with open(SELECTED_TEST_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            if 'lessons' in data:
-                for item in data['lessons']:
+                file_data = json.load(f)
+            if 'lessons' in file_data:
+                for item in file_data['lessons']:
                     if item.get('id') == lesson_id:
                         item['available'] = bool(available)
                         break
-                try:
-                    with open(SELECTED_TEST_FILE, 'w', encoding='utf-8') as f:
-                        json.dump(data, f, ensure_ascii=False, indent=2)
-                except Exception as e:
-                    print(f"[WARN] Не удалось обновить {SELECTED_TEST_FILE}: {e}")
-
-    except Exception as e:
-        print(f"[WARN] Ошибка при попытке сохранить доступность в {SELECTED_TEST_FILE}: {e}")
+            with open(SELECTED_TEST_FILE, 'w', encoding='utf-8') as f:
+                json.dump(file_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[WARN] Ошибка сохранения: {e}")
 
     return jsonify({'success': True, 'lessons': LESSONS})
 
-
 @app.route('/api/ip_names', methods=['GET', 'POST'])
 def api_ip_names():
-    # Admin-only for setting names
     if request.method == 'GET':
         return jsonify(IP_NAMES)
-
-    # POST
+    
     if not session.get('admin'):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 401
 
     data = request.get_json() or {}
     ip = data.get('ip')
     name = data.get('name')
+    
     if not ip:
         return jsonify({'success': False, 'error': 'Missing ip'}), 400
 
     if name is None:
-        # delete name
         IP_NAMES.pop(ip, None)
     else:
         IP_NAMES[ip] = str(name)
@@ -697,112 +496,64 @@ def api_ip_names():
 
 @app.route('/api/select_lesson', methods=['POST'])
 def select_lesson():
-    """
-    Выбор урока по названию файла.
-    Принимает: {"lesson_name": "web+css.json"}
-    Возвращает: информацию о выбранном уроке и список уроков
-    """
     try:
         data = request.get_json()
-        global lesson_name 
         lesson_name = data.get('lesson_name')
         
         if not lesson_name:
-            return jsonify({
-                'success': False,
-                'error': 'Не указано название урока'
-            }), 400
+            return jsonify({'success': False, 'error': 'Не указано название урока'}), 400
         
-        # Формируем путь к файлу
-        lesson_path = os.path.join('tests', lesson_name)
-        
-        # Проверяем существование файла
+        lesson_path = os.path.join(TESTS_DIR, lesson_name)
         if not os.path.exists(lesson_path):
-            return jsonify({
-                'success': False,
-                'error': f'Файл урока не найден: {lesson_name}'
-            }), 404
+            return jsonify({'success': False, 'error': f'Файл не найден: {lesson_name}'}), 404
         
-        # Обновляем глобальную переменную
         global SELECTED_TEST_FILE
         SELECTED_TEST_FILE = lesson_path
         
-        # Перестраиваем список уроков из выбранного файла
         build_lessons_from_file(SELECTED_TEST_FILE)
-        
-        # Загружаем сохраненные результаты и имена IP
         load_logs()
         load_ip_names()
         
         print(f"[INFO] Урок выбран: {lesson_name}")
-        print(f"[INFO] Доступно уроков: {len(LESSONS)}")
         
         return jsonify({
             'success': True,
-            'message': f'Урок "{lesson_name}" успешно выбран',
-            'file_path': lesson_path,
+            'message': f'Урок "{lesson_name}" выбран',
             'lessons_count': len(LESSONS),
             'lessons': LESSONS
         })
-        
     except Exception as e:
         print(f"[ERROR] Ошибка выбора урока: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-    
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/tests/list', methods=['GET'])
 def list_test_files():
-    """
-    Получение списка всех файлов тестов в папке tests/
-    Возвращает: список файлов с метаинформацией
-    """
     try:
-        tests_dir = 'tests'
+        if not os.path.exists(TESTS_DIR):
+            return jsonify({'success': False, 'error': 'Папка tests не найдена', 'files': []})
         
-        # Проверяем существование папки
-        if not os.path.exists(tests_dir):
-            return jsonify({
-                'success': False,
-                'error': 'Папка tests не найдена',
-                'files': []
-            })
-        
-        # Получаем все JSON файлы
         files = []
-        for filename in sorted(os.listdir(tests_dir)):
+        for filename in sorted(os.listdir(TESTS_DIR)):
             if filename.endswith('.json'):
-                file_path = os.path.join(tests_dir, filename)
-                
-                # Получаем информацию о файле
+                file_path = os.path.join(TESTS_DIR, filename)
                 file_stat = os.stat(file_path)
                 
-                # Читаем содержимое для получения метаинформации
+                title = filename
+                questions_count = 0
+                lessons_info = []
+                
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
-                    
-                    # Извлекаем метаинформацию
                     title = data.get('title', filename)
                     questions_count = len(data.get('questions', []))
-                    
-                    # Если есть структура уроков
-                    lessons_info = []
                     if 'lessons' in data:
-                        for lesson in data.get('lessons', []):
-                            lessons_info.append({
-                                'name': lesson.get('name'),
-                                'questions_count': len(lesson.get('questions', []))
-                            })
-                    
-                except Exception as e:
-                    title = filename
-                    questions_count = 0
-                    lessons_info = []
-                    print(f"[WARN] Не удалось прочитать {filename}: {e}")
+                        lessons_info = [
+                            {'name': l.get('name'), 'questions_count': len(l.get('questions', []))}
+                            for l in data.get('lessons', [])
+                        ]
+                except Exception:
+                    pass
                 
                 files.append({
                     'name': filename,
@@ -823,93 +574,17 @@ def list_test_files():
             'total': len(files),
             'current_lesson': os.path.basename(SELECTED_TEST_FILE) if SELECTED_TEST_FILE else None
         })
-        
     except Exception as e:
-        print(f"[ERROR] Ошибка получения списка файлов: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({
-            'success': False,
-            'error': str(e),
-            'files': []
-        }), 500
-    
-@app.route('/api/tests/<filename>', methods=['GET'])
-def get_test_file(filename):
-    """
-    Получение содержимого конкретного файла теста
-    """
-    try:
-        file_path = os.path.join('tests', filename)
-        
-        if not os.path.exists(file_path):
-            return jsonify({
-                'success': False,
-                'error': 'Файл не найден'
-            }), 404
-        
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        return jsonify({
-            'success': True,
-            'filename': filename,
-            'data': data
-        })
-        
-    except Exception as e:
-        print(f"[ERROR] Ошибка чтения файла {filename}: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        print(f"[ERROR] Ошибка списка файлов: {e}")
+        return jsonify({'success': False, 'error': str(e), 'files': []}), 500
 
 @app.route('/api/questions/<int:lesson_id>', methods=['GET'])
 def get_questions(lesson_id):
-    # If a selected merged file exists, prefer slicing there to be explicit
-    if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
-        try:
-            with open(SELECTED_TEST_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # If file has per-lesson grouping
-            if 'lessons' in data:
-                lessons = data.get('lessons', [])
-                idx = max(0, lesson_id - 1)
-                if 0 <= idx < len(lessons):
-                    qs = lessons[idx].get('questions', [])
-                    print(f"[DEBUG] /api/questions -> returning lessons[{idx}] from {SELECTED_TEST_FILE} ({len(qs)})")
-                    return jsonify(qs)
-
-            # If flat questions array, try to split evenly by LESSONS
-            qs_all = data.get('questions', [])
-            lessons_count = len(LESSONS)
-            if qs_all and lessons_count > 0 and len(qs_all) % lessons_count == 0:
-                chunk = len(qs_all) // lessons_count
-                idx = max(0, lesson_id - 1)
-                start = idx * chunk
-                end = start + chunk
-                subset = qs_all[start:end]
-                print(f"[DEBUG] /api/questions -> returning chunk {idx} ({len(subset)}) from {SELECTED_TEST_FILE}")
-                return jsonify(subset)
-
-            # Fallback: return entire questions array
-            print(f"[DEBUG] /api/questions -> fallback returning all ({len(qs_all)}) from {SELECTED_TEST_FILE}")
-            return jsonify(qs_all)
-        except Exception as e:
-            print(f"[DEBUG] /api/questions error reading {SELECTED_TEST_FILE}: {e}")
-
-    # Default behaviour
     questions = load_questions(lesson_id)
-    try:
-        print(f"[DEBUG] /api/questions/{lesson_id} -> type={type(questions).__name__}, len={len(questions) if hasattr(questions, '__len__') else 'n/a'}")
-    except Exception:
-        pass
     return jsonify(questions)
 
 @app.route('/api/start_session', methods=['POST'])
 def start_session():
-    """Создание новой сессии для ученика или восстановление существующей"""
     global cooldown_devices
     try:
         data = request.get_json()
@@ -918,138 +593,64 @@ def start_session():
         device_id = data.get('device_id')
         
         if not device_id:
-            return jsonify({'success': False, 'error': 'Не указан идентификатор устройства'}), 400
+            return jsonify({'success': False, 'error': 'Не указан device_id'}), 400
         
-        # Получаем реальный IP клиента (с учётом прокси)
         client_ip = request.headers.get('X-Forwarded-For', request.remote_addr).split(',')[0].strip()
-        
-        # Создаём уникальный идентификатор для кулдауна: комбинация device_id + IP
-        # Это предотвращает обход кулдауна при смене браузера или очистке куки
         cooldown_key = f"{device_id}_{client_ip}"
         
-        # ============================================
-        # ШАГ 1: Проверяем, есть ли активная сессия для этого устройства + урока
-        # ============================================
-        active_session = None
+        # Проверка активной сессии
         for sid, sess in sessions.items():
-            # Ищем сессию по совпадению device_id, IP и lesson_id
             if (sess.get('device_id') == device_id and 
                 sess.get('ip') == client_ip and
-                sess.get('lesson_id') == lesson_id):
-                
-                # Если сессия НЕ завершена — восстанавливаем её
-                if not sess.get('completed', False):
-                    active_session = sid
-                    break
-        
-        if active_session:
-            # Восстанавливаем существующую сессию
-            session_data = sessions[active_session]
-            log_event(
-                active_session, 
-                'RESUME', 
-                f'Восстановлена сессия: {session_data.get("questions_answered", 0)}/{len(session_data.get("answers_log", []))} вопросов пройдено'
-            )
-            
-            return jsonify({
-                'success': True,
-                'session_id': active_session,
-                'student_name': session_data.get('student_name', student_name),
-                'resumed': True,
-                'current_question': session_data.get('current_question', 1),
-                'questions_answered': session_data.get('questions_answered', 0)
-            })
-        
-        # ============================================
-        # ШАГ 2: Проверяем кулдаун (только если нет активной сессии)
-        # ============================================
-        # Проверяем кулдаун по комбинации device_id + IP
-        if cooldown_key in cooldown_devices:
-            time_since_last_test = time.time() - cooldown_devices[cooldown_key]
-            if time_since_last_test < 600:  # 10 минут кулдаун
-                remaining = 600 - int(time_since_last_test)
-                log_event(
-                    'unknown',
-                    'COOLDOWN',
-                    f'Попытка обхода кулдауна: device={device_id}, ip={client_ip}'
-                )
+                sess.get('lesson_id') == lesson_id and
+                not sess.get('completed', False)):
+                log_event(sid, 'RESUME', f'Восстановлена сессия')
                 return jsonify({
-                    'success': False, 
-                    'error': f'Пожалуйста, подождите {remaining}сек. перед началом нового теста.'
+                    'success': True,
+                    'session_id': sid,
+                    'student_name': sess.get('student_name', student_name),
+                    'resumed': True,
+                    'current_question': sess.get('current_question', 1),
+                    'questions_answered': sess.get('questions_answered', 0)
+                })
+        
+        # Проверка кулдауна
+        if cooldown_key in cooldown_devices:
+            elapsed = time.time() - cooldown_devices[cooldown_key]
+            if elapsed < COOLDOWN_TIME:
+                return jsonify({
+                    'success': False,
+                    'error': f'Подождите {int(COOLDOWN_TIME - elapsed)} сек.'
                 }), 429
         
-        # ============================================
-        # ШАГ 3: Проверяем доступность урока
-        # ============================================
-        lesson_entry = None
+        # Проверка доступности урока
         for l in LESSONS:
-            if l.get('id') == lesson_id:
-                lesson_entry = l
-                break
-
-        if lesson_entry and lesson_entry.get('available') is False:
-            return jsonify({'success': False, 'error': 'Урок временно недоступен'}), 403
+            if l.get('id') == lesson_id and l.get('available') is False:
+                return jsonify({'success': False, 'error': 'Урок недоступен'}), 403
         
-        # ============================================
-        # ШАГ 4: Создаём новую сессию
-        # ============================================
-        # Обновляем время кулдауна (только при создании НОВОЙ сессии)
+        # Создание сессии
         cooldown_devices[cooldown_key] = time.time()
-        
-        # Генерация уникального ID сессии
         session_id = str(uuid.uuid4())[:8]
-
-        # ✅ ОПРЕДЕЛЯЕМ module_name и lesson_name
-        module_name = None
-        lesson_name = None
         
-        if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
-            # ✅ module_name = имя файла (например, "web+css.json")
-            module_name = os.path.basename(SELECTED_TEST_FILE)
-            
-            # ✅ lesson_name = название урока из LESSONS
-            lesson_entry = None
-            for l in LESSONS:
-                if l.get('id') == lesson_id:
-                    lesson_entry = l
-                    break
-            lesson_name = lesson_entry['name'] if lesson_entry else f"Урок {lesson_id}"
-        else:
-            module_name = f"module_{lesson_id}"
-            lesson_entry = None
-            for l in LESSONS:
-                if l.get('id') == lesson_id:
-                    lesson_entry = l
-                    break
-            lesson_name = lesson_entry['name'] if lesson_entry else f"Урок {lesson_id}"
-
-        start_ts = datetime.now().isoformat()
-
-        # Сохранение информации о сессии
+        module_name = os.path.basename(SELECTED_TEST_FILE) if SELECTED_TEST_FILE else f"module_{lesson_id}"
+        lesson_name = next((l['name'] for l in LESSONS if l.get('id') == lesson_id), f"Урок {lesson_id}")
+        
         sessions[session_id] = {
             'student_name': student_name,
             'lesson_id': lesson_id,
             'lesson_name': lesson_name,
-            'module_name': module_name,  # ✅ ДОБАВЛЕНО
-            'lesson_file': SELECTED_TEST_FILE,
+            'module_name': module_name,
             'start_time': time.time(),
-            'start_timestamp': start_ts,
+            'start_timestamp': datetime.now().isoformat(),
             'ip': client_ip,
             'device_id': device_id,
             'questions_answered': 0,
-            'correct_answers': 0,
             'current_question': 1,
-            'answers_log': [],
             'completed': False,
             'last_activity': time.time()
         }
         
-        log_event(
-            session_id, 
-            'START', 
-            f'Начал тест: {module_name} / {lesson_name}',
-            lesson_id=lesson_id
-        )
+        log_event(session_id, 'START', f'Начал тест: {lesson_name}')
         
         return jsonify({
             'success': True,
@@ -1059,125 +660,123 @@ def start_session():
             'current_question': 1,
             'questions_answered': 0
         })
-        
     except Exception as e:
-        log_event('unknown', 'ERROR', f'Ошибка создания/восстановления сессии: {str(e)}')
+        log_event('unknown', 'ERROR', str(e))
         return jsonify({'success': False, 'error': str(e)}), 500
-    
+
 @app.route('/api/log_question', methods=['POST'])
 def log_question():
-    """Логирование просмотра вопроса"""
     try:
         data = request.get_json()
         session_id = data.get('session_id')
         question_num = data.get('question_num')
-        question_text = data.get('question_text', '')
         
         if session_id in sessions:
-            # Обновляем текущий вопрос
             sessions[session_id]['current_question'] = question_num
-            # Обновляем количество отвеченных вопросов: если ученик на вопросе N, значит отвечен N-1
             try:
                 qn = int(question_num)
-                prev_ans = sessions[session_id].get('questions_answered', 0)
-                sessions[session_id]['questions_answered'] = max(prev_ans, max(0, qn - 1))
+                sessions[session_id]['questions_answered'] = max(0, qn - 1)
             except Exception:
-                # если question_num не число — не меняем
                 pass
-            total_questions = len(load_questions(sessions[session_id].get('lesson_id')))
-            
-            log_event(
-                session_id,
-                'QUESTION',
-                question_text,
-                question_num=question_num,
-                total_questions=total_questions
-            )
         
         return jsonify({'success': True})
     except Exception as e:
-        print(f"Ошибка логирования вопроса: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
-
-@app.route('/api/add_question', methods=['POST'])
-def add_question():
+@app.route('/api/submit', methods=['POST'])
+def submit_answers():
     try:
-        new_question = request.get_json()
+        data = request.get_json()
+        user_answers = data.get('answers', [])
+        lesson_id = data.get('lesson_id', 1)
+        session_id = data.get('session_id')
         
-        # Загрузка текущих вопросов
-        with open('questions.json', 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        if session_id not in sessions:
+            return jsonify({'success': False, 'error': 'Сессия не найдена'}), 400
         
-        # Генерация нового ID
-        max_id = max([q['id'] for q in data['questions']], default=0)
-        new_question['id'] = max_id + 1
+        session_data = sessions[session_id]
+        session_data['completed'] = True
+        session_data['end_time'] = time.time()
         
-        # Добавление нового вопроса
-        data['questions'].append(new_question)
+        questions = load_questions(lesson_id)
+        score = 0
+        results = []
         
-        # Сохранение обратно в файл
-        with open('questions.json', 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        
-        return jsonify({'success': True, 'message': 'Вопрос добавлен'})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/api/sessions', methods=['GET'])
-def get_sessions():
-    """Получение списка активных сессий"""
-    active_sessions = []
-    current_time = time.time()
-    
-    for sid, data in list(sessions.items()):
-        elapsed = int(current_time - data['start_time'])
-        # Удаляем сессии старше 1 часа
-        if elapsed > 3600:
-            del sessions[sid]
-            continue
+        for i, question in enumerate(questions):
+            user_answer = user_answers[i] if i < len(user_answers) else None
+            correct_answer = question['correct_answer']
+            is_correct = user_answer == correct_answer
             
-        active_sessions.append({
-            'lesson_name': data['lesson_name'],
-            'lesson_id': data['lesson_id'],
-            'ip': data.get('ip'),
-            'ip_name': IP_NAMES.get(data.get('ip')) if data.get('ip') else None,
-            'device_id': data.get('device_id'),
-            'start_timestamp': data.get('start_timestamp'),
-            'ip': data.get('ip'),
-            'start_timestamp': data.get('start_timestamp'),
-            'elapsed_time': elapsed,
-            'questions_answered': data.get('questions_answered', 0),
-            'correct_answers': data.get('correct_answers', 0),
-            'current_question': data.get('current_question', 1),
-            'start_time': data.get('start_timestamp', '')
+            if is_correct:
+                score += question.get('points', 1)
+            
+            results.append({
+                'question_id': question['id'],
+                'user_answer': user_answer,
+                'correct_answer': correct_answer,
+                'is_correct': is_correct,
+                'question_text': question['question'],
+                'options': question['options']
+            })
+        
+        percentage = (score / len(questions)) * 100 if questions else 0
+        grade = calculate_grade(percentage)
+        
+        student_name = session_data['student_name']
+        elapsed_time = int(time.time() - session_data['start_time'])
+        module_name = session_data.get('module_name', f"module_{lesson_id}")
+        lesson_name = session_data.get('lesson_name', f"Урок {lesson_id}")
+        client_ip = session_data.get('ip', 'unknown')
+        
+        log_event(session_id, 'SUBMIT', 'Тест завершен',
+                  score=score, total=len(questions), percentage=round(percentage, 2),
+                  grade=grade, elapsed_time=elapsed_time)
+        
+        record = {
+            'id': str(uuid.uuid4())[:8],
+            'student_name': student_name,
+            'lesson_id': session_data['lesson_id'],
+            'lesson_name': lesson_name,
+            'module_name': module_name,
+            'device_id': session_data.get('device_id'),
+            'score': score,
+            'total': len(questions),
+            'percentage': round(percentage, 2),
+            'grade': grade,
+            'elapsed_time': elapsed_time,
+            'elapsed_time_formatted': f"{elapsed_time // 60}:{elapsed_time % 60:02d}",
+            'timestamp': datetime.now().isoformat(),
+            'ip': client_ip,
+            'results': results
+        }
+        
+        completed_tests.append(record)
+        append_log_entry(record)
+        
+        del sessions[session_id]
+        
+        return jsonify({
+            'success': True,
+            'score': score,
+            'total': len(questions),
+            'percentage': round(percentage, 2),
+            'grade': grade,
+            'results': results
         })
-    
-    return jsonify({
-        'active_sessions': active_sessions,
-        'total_active': len(active_sessions),
-        'timestamp': datetime.now().strftime('%H:%M:%S')
-    })
-
-@app.route('/dashboard')
-def teacher_dashboard():
-    print(session)
-    """Страница дашборда для преподавателя"""
-    if not session.get('admin'):
-        return redirect(url_for('login'))
-    return render_template('dashboard.html')
+    except Exception as e:
+        log_event('unknown', 'ERROR', str(e))
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
-    """Получение статистики для дашборда"""
     current_time = time.time()
     
-    # 1. Очистка старых сессий
+    # Очистка старых сессий
     for sid in list(sessions.keys()):
-        if current_time - sessions[sid]['start_time'] > 3600:
+        if current_time - sessions[sid]['start_time'] > SESSION_TIMEOUT:
             del sessions[sid]
 
-    # 2. Сбор данных для Active Sessions
+    # Активные сессии
     active_sessions_list = []
     for sid, data in sessions.items():
         elapsed = int(current_time - data['start_time'])
@@ -1185,8 +784,6 @@ def get_dashboard_stats():
         progress = (data.get('questions_answered', 0) / total_questions * 100) if total_questions > 0 else 0
         
         client_ip = data.get('ip', 'unknown')
-        ip_name = IP_NAMES.get(client_ip)
-
         active_sessions_list.append({
             'session_id': sid,
             'device_id': data.get('device_id'),
@@ -1194,7 +791,7 @@ def get_dashboard_stats():
             'lesson_name': data['lesson_name'],
             'lesson_id': data['lesson_id'],
             'ip': client_ip,
-            'ip_name': ip_name,
+            'ip_name': IP_NAMES.get(client_ip),
             'elapsed_time': elapsed,
             'elapsed_time_formatted': f"{elapsed // 60}:{elapsed % 60:02d}",
             'questions_answered': data.get('questions_answered', 0),
@@ -1204,14 +801,16 @@ def get_dashboard_stats():
             'progress_color': '#4CAF50' if progress > 75 else '#FF9800' if progress > 50 else '#F44336'
         })
 
-    # 3. Агрегация данных по IP
+    # Агрегация по IP
     ip_stats = {}
-
-    def get_ip_entry(ip_addr):
-        if ip_addr not in ip_stats:
-            ip_stats[ip_addr] = {
-                'ip': ip_addr,
-                'device_name': IP_NAMES.get(ip_addr),
+    for test in completed_tests:
+        ip = test.get('ip')
+        if not ip:
+            continue
+        if ip not in ip_stats:
+            ip_stats[ip] = {
+                'ip': ip,
+                'device_name': IP_NAMES.get(ip),
                 'students': set(),
                 'lessons': set(),
                 'active_sessions': 0,
@@ -1221,14 +820,8 @@ def get_dashboard_stats():
                 'first_seen': None,
                 'last_seen': None
             }
-        return ip_stats[ip_addr]
-
-    for test in completed_tests:
-        ip = test.get('ip')
-        if not ip:
-            continue
         
-        entry = get_ip_entry(ip)
+        entry = ip_stats[ip]
         entry['students'].add(test.get('student_name', 'Unknown'))
         entry['lessons'].add(test.get('lesson_name', 'Unknown'))
         entry['completed_tests'] += 1
@@ -1246,8 +839,21 @@ def get_dashboard_stats():
         ip = s.get('ip')
         if not ip:
             continue
-
-        entry = get_ip_entry(ip)
+        if ip not in ip_stats:
+            ip_stats[ip] = {
+                'ip': ip,
+                'device_name': IP_NAMES.get(ip),
+                'students': set(),
+                'lessons': set(),
+                'active_sessions': 0,
+                'completed_tests': 0,
+                'total_tests': 0,
+                'total_percentage': 0,
+                'first_seen': None,
+                'last_seen': None
+            }
+        
+        entry = ip_stats[ip]
         entry['active_sessions'] += 1
         entry['total_tests'] += 1
         entry['students'].add(s.get('student_name'))
@@ -1262,10 +868,7 @@ def get_dashboard_stats():
 
     unique_devices_output = []
     for ip, data in ip_stats.items():
-        avg_pct = 0
-        if data['completed_tests'] > 0:
-            avg_pct = round(data['total_percentage'] / data['completed_tests'], 1)
-        
+        avg_pct = round(data['total_percentage'] / data['completed_tests'], 1) if data['completed_tests'] > 0 else 0
         unique_devices_output.append({
             'device_id': ip,
             'device_name': data['device_name'],
@@ -1284,15 +887,13 @@ def get_dashboard_stats():
 
     unique_devices_output.sort(key=lambda x: (not x['is_active'], x['last_seen'] or ''), reverse=False)
 
-    # 4. Недавние тесты
+    # Недавние тесты
     recent_tests = completed_tests[-20:][::-1]
     for rt in recent_tests:
-        rt_ip = rt.get('ip')
-        rt['ip_name'] = IP_NAMES.get(rt_ip)
+        rt['ip_name'] = IP_NAMES.get(rt.get('ip'))
 
-    # 5. Статистика по урокам
+    # Статистика по урокам
     lesson_stats = {}
-    
     for lesson in LESSONS:
         lesson_stats[lesson['id']] = {
             'lesson_id': lesson['id'],
@@ -1314,17 +915,12 @@ def get_dashboard_stats():
             stats['average_percentage'] = round(stats['total_points'] / stats['completed_count'], 1)
             stats['trend'] = 'up' if stats['average_percentage'] > 75 else 'down' if stats['average_percentage'] < 50 else 'flat'
 
-    # 6. Общие цифры
+    # Общие цифры
     total_completed = len(completed_tests)
     total_active = len(active_sessions_list)
-    avg_percentage = 0
-    avg_time = 0
+    avg_percentage = sum(t['percentage'] for t in completed_tests) / total_completed if total_completed > 0 else 0
+    avg_time = sum(t['elapsed_time'] for t in completed_tests) / total_completed if total_completed > 0 else 0
 
-    if total_completed > 0:
-        avg_percentage = sum(t['percentage'] for t in completed_tests) / total_completed
-        avg_time = sum(t['elapsed_time'] for t in completed_tests) / total_completed
-
-    # ✅ НОВАЯ СИСТЕМА ПОДСЧЁТА ОЦЕНОК
     return jsonify({
         'active_sessions': active_sessions_list,
         'recent_tests': recent_tests,
@@ -1335,152 +931,27 @@ def get_dashboard_stats():
             'total_active': total_active,
             'average_percentage': round(avg_percentage, 1),
             'average_time': round(avg_time, 1),
-            'excellent': len([t for t in completed_tests if t['percentage'] >= 90]),      # 5
-            'good': len([t for t in completed_tests if 61 <= t['percentage'] < 90]),      # 4 (было 75-89)
-            'satisfactory': len([t for t in completed_tests if 41 <= t['percentage'] < 61]),  # 3 (было 60-74)
-            'unsatisfactory': len([t for t in completed_tests if t['percentage'] <= 40])  # 2 (было <60)
+            'excellent': len([t for t in completed_tests if t['percentage'] >= 90]),
+            'good': len([t for t in completed_tests if 61 <= t['percentage'] < 90]),
+            'satisfactory': len([t for t in completed_tests if 41 <= t['percentage'] < 61]),
+            'unsatisfactory': len([t for t in completed_tests if t['percentage'] <= 40])
         },
         'timestamp': datetime.now().strftime('%H:%M:%S')
     })
 
-@app.route('/api/submit', methods=['POST'])
-def submit_answers():
-    """Проверка ответов и завершение теста"""
-    try:
-        data = request.get_json()
-        user_answers = data.get('answers', [])
-        lesson_id = data.get('lesson_id', 1)
-        session_id = data.get('session_id')
-        
-        if session_id not in sessions:
-            return jsonify({'success': False, 'error': 'Сессия не найдена'}), 400
-        
-        session_data = sessions[session_id]
-        session_data['completed'] = True
-        session_data['end_time'] = time.time()
-        session_data['last_activity'] = time.time()
-        
-        questions = load_questions(lesson_id)
-        
-        score = 0
-        total_questions = len(questions)
-        results = []
-        
-        for i, question in enumerate(questions):
-            user_answer = user_answers[i] if i < len(user_answers) else None
-            correct_answer = question['correct_answer']
-            is_correct = user_answer == correct_answer
-            
-            user_answer_text = question['options'][user_answer] if user_answer is not None else 'Не отвечено'
-            correct_answer_text = question['options'][correct_answer]
-            
-            if is_correct:
-                score += question.get('points', 1)
-            
-            results.append({
-                'question_id': question['id'],
-                'user_answer': user_answer,
-                'correct_answer': correct_answer,
-                'is_correct': is_correct,
-                'question_text': question['question'],
-                'options': question['options']
-            })
-        
-        percentage = (score / total_questions) * 100 if total_questions > 0 else 0
-        
-        # ✅ НОВАЯ СПРАВЕДЛИВАЯ СИСТЕМА ОЦЕНОК
-        if percentage >= 90:
-            grade = '5 (Отлично)'
-        elif percentage >= 61:  # Было: 75
-            grade = '4 (Хорошо)'
-        elif percentage >= 41:  # Было: 60
-            grade = '3 (Удовлетворительно)'
-        else:  # ≤ 40%
-            grade = '2 (Неудовлетворительно)'
-        
-        if session_id in sessions:
-            student_name = sessions[session_id]['student_name']
-            elapsed_time = int(time.time() - sessions[session_id]['start_time'])
-            
-            module_name = sessions[session_id].get('module_name', f"module_{lesson_id}")
-            lesson_name = sessions[session_id].get('lesson_name', f"Урок {lesson_id}")
-            client_ip = sessions[session_id].get('ip', 'unknown')
-            
-            log_event(
-                session_id,
-                'SUBMIT',
-                f'Тест завершен: {module_name} / {lesson_name}',
-                score=score,
-                total=total_questions,
-                percentage=round(percentage, 2),
-                grade=grade,
-                elapsed_time=elapsed_time
-            )
-            
-            record = {
-                'id': str(uuid.uuid4())[:8],
-                'student_name': student_name,
-                'lesson_id': sessions[session_id]['lesson_id'],
-                'lesson_name': sessions[session_id].get('lesson_name', f"Урок {lesson_id}"),
-                'module_name': sessions[session_id].get('module_name', f"module_{lesson_id}"),
-                'device_id': sessions[session_id].get('device_id'),
-                'score': score,
-                'total': total_questions,
-                'percentage': round(percentage, 2),
-                'grade': grade,
-                'elapsed_time': elapsed_time,
-                'elapsed_time_formatted': f"{elapsed_time // 60}:{elapsed_time % 60:02d}",
-                'timestamp': datetime.now().isoformat(),
-                'ip': sessions[session_id].get('ip'),
-                'results': results
-            }
-            
-            completed_tests.append(record)
-            
-            try:
-                append_log_entry(record)
-                print(f"[INFO] Запись сохранена: module={module_name}, lesson={lesson_name}")
-            except Exception as e:
-                print(f'[WARN] Не удалось записать запись в {LOG_FILE}: {e}')
-            
-            del sessions[session_id]
-        
-        return jsonify({
-            'success': True,
-            'score': score,
-            'total': total_questions,
-            'percentage': round(percentage, 2),
-            'grade': grade,
-            'results': results
-        })
-        
-    except Exception as e:
-        log_event('unknown', 'ERROR', f'Ошибка при проверке ответов: {str(e)}')
-        import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
+# ────────────────────────────────────────────
+# Запуск приложения
+# ────────────────────────────────────────────
 if __name__ == '__main__':
-    # ✅ ВАЖНО: Сначала инициализируем completed_tests
     completed_tests = []
     
     try:
-        # ✅ Загружаем логи ДО выбора урока
         load_logs()
         load_ip_names()
     except Exception as e:
-        print(f"[WARN] Ошибка при загрузке логов: {e}")
-    
-    # ✅ Затем выбираем файл урока (это построит LESSONS)
-    # try:
-    #     interactive_test_selector()
-    #     if SELECTED_TEST_FILE:
-    #         build_lessons_from_file(SELECTED_TEST_FILE)
-    # except Exception as e:
-    #     print(f"[WARN] Ошибка селектора: {e}")
-    
-    # ✅ После построения LESSONS - восстанавливаем lesson_name в загруженных логах
+        print(f"[WARN] Ошибка загрузки: {e}")
+
+    # Восстановление lesson_name в загруженных логах
     for test in completed_tests:
         if 'lesson_name' not in test or not test['lesson_name']:
             for lesson in LESSONS:
@@ -1489,14 +960,13 @@ if __name__ == '__main__':
                     break
             if 'lesson_name' not in test:
                 test['lesson_name'] = f"Урок {test.get('lesson_id', 1)}"
-    
+
     print(f"\n{Fore.GREEN + Style.BRIGHT}🚀 Сервер запускается...")
-    print(f"{Fore.CYAN}📚 Доступные уроки:")
+    print(f"{Fore.CYAN}📚 Доступные уроки: {len(LESSONS)}")
     for lesson in LESSONS:
         print(f"   {lesson['id']}. {lesson['name']}")
-    print(f"\n{Fore.YELLOW}📡 Сервер запущен: {Fore.WHITE + Style.BRIGHT}http://localhost:80")
-    print(f"{Fore.YELLOW}📊 Дашборд: {Fore.WHITE + Style.BRIGHT}http://localhost:80/dashboard")
-    print(f"{Fore.YELLOW}📈 API статистики: {Fore.WHITE + Style.BRIGHT}http://localhost:80/api/dashboard/stats")
+    print(f"\n{Fore.YELLOW}📡 Сервер: http://localhost:80")
+    print(f"{Fore.YELLOW}📊 Дашборд: http://localhost:80/dashboard")
     print(f"\n{Fore.GREEN + Style.BRIGHT}{'─'*80}\n")
 
     app.run(debug=True, host='0.0.0.0', port=80)

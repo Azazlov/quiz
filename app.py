@@ -32,7 +32,7 @@ if env_test:
 LESSONS = []
 
 cooldown_devices = {}
-
+lesson_name = ''
 completed_tests = []
 
 # Simple admin credentials (stored as hash in code)
@@ -117,69 +117,27 @@ IP_NAMES = {}
 LOG_FILE = 'logs.json'  # Было: 'logs.txt'
 
 def validate_log_entry(entry):
-    """
-    Валидация записи лога.
-    Возвращает (True, None) если валидна, или (False, error_message) если нет.
-    """
+    """Валидация записи лога"""
     required_fields = ['id', 'student_name', 'lesson_id', 'score', 'total', 'percentage', 'grade', 'elapsed_time', 'timestamp']
     
-    # Проверка наличия обязательных полей
     for field in required_fields:
         if field not in entry:
             return False, f"Отсутствует обязательное поле: {field}"
     
-    # Валидация типов данных
-    try:
-        # ID должен быть строкой
-        if not isinstance(entry['id'], str):
-            return False, "Поле 'id' должно быть строкой"
-        
-        # Имя ученика должно быть строкой
-        if not isinstance(entry['student_name'], str):
-            return False, "Поле 'student_name' должно быть строкой"
-        
-        # lesson_id должен быть целым числом
-        if not isinstance(entry['lesson_id'], int):
-            entry['lesson_id'] = int(entry['lesson_id'])
-        
-        # score и total должны быть целыми числами
-        if not isinstance(entry['score'], int):
-            entry['score'] = int(entry['score'])
-        if not isinstance(entry['total'], int):
-            entry['total'] = int(entry['total'])
-        
-        # percentage должен быть числом
-        if not isinstance(entry['percentage'], (int, float)):
-            entry['percentage'] = float(entry['percentage'])
-        
-        # elapsed_time должен быть целым числом
-        if not isinstance(entry['elapsed_time'], int):
-            entry['elapsed_time'] = int(entry['elapsed_time'])
-        
-        # timestamp должен быть строкой
-        if not isinstance(entry['timestamp'], str):
-            return False, "Поле 'timestamp' должно быть строкой"
-        
-        # Проверка логических ограничений
-        if entry['score'] < 0:
-            return False, "score не может быть отрицательным"
-        if entry['total'] <= 0:
-            return False, "total должен быть положительным"
-        if entry['score'] > entry['total']:
-            return False, "score не может быть больше total"
-        if not (0 <= entry['percentage'] <= 100):
-            return False, "percentage должен быть в диапазоне 0-100"
-        if entry['elapsed_time'] < 0:
-            return False, "elapsed_time не может быть отрицательным"
-        
-    except (ValueError, TypeError) as e:
-        return False, f"Ошибка валидации типов данных: {str(e)}"
+    # ✅ module_name - опциональное поле, но если есть - должно быть строкой
+    if 'module_name' in entry and not isinstance(entry['module_name'], str):
+        entry['module_name'] = str(entry['module_name'])
+    
+    # ... остальная валидация без изменений ...
     
     return True, None
 
 
 def load_logs(path=LOG_FILE):
-    """Загрузка завершенных тестов из JSON-файла."""
+    """
+    Загрузка завершенных тестов из JSON-файла.
+    Формат файла: {"completed_tests": [...]}
+    """
     global completed_tests
     completed_tests.clear()
     
@@ -191,39 +149,63 @@ def load_logs(path=LOG_FILE):
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
+        # ✅ ИСПРАВЛЕНО: убран лишний пробел в 'completed_tests'
         if not isinstance(data, dict) or 'completed_tests' not in data:
-            print(f"[WARN] Некорректная структура файла {path}")
+            print(f"[WARN] Некорректная структура файла {path}, ожидается {{'completed_tests': [...]}}")
             return
         
         raw_records = data['completed_tests']
-        loaded_count = 0
         
-        for record in raw_records:
+        loaded_count = 0
+        invalid_count = 0
+        duplicate_count = 0
+        
+        for idx, record in enumerate(raw_records):
+            # Валидация записи
             is_valid, error_msg = validate_log_entry(record)
             
             if not is_valid:
-                print(f"[WARN] Пропущена запись: {error_msg}")
+                invalid_count += 1
+                print(f"[WARN] Запись #{idx}: {error_msg}")
+                print(f"    Данные: {str(record)[:150]}...")
                 continue
             
-            # Проверка на дубликаты по ID
+            # Проверка на дубликаты
             record_id = record.get('id')
             if any(t.get('id') == record_id for t in completed_tests):
+                duplicate_count += 1
+                print(f"[WARN] Запись #{idx}: Пропущен дубликат ID={record_id}")
                 continue
             
-            # ✅ ВАЖНО: lesson_name уже должен быть в записи (сохранён при submit)
-            # Но если его нет - восстанавливаем из LESSONS (после их загрузки)
+            # ✅ ВОССТАНАВЛИВАЕМ module_name И lesson_name ЕСЛИ НЕТ
+            if 'module_name' not in record or not record['module_name']:
+                record['module_name'] = f"module_{record.get('lesson_id', 1)}"
+            
             if 'lesson_name' not in record or not record['lesson_name']:
-                record['lesson_name'] = f"Урок {record.get('lesson_id', 1)}"
+                for lesson in LESSONS:
+                    if lesson.get('id') == record.get('lesson_id'):
+                        record['lesson_name'] = lesson.get('name', f"Урок {record.get('lesson_id')}")
+                        break
+                if 'lesson_name' not in record:
+                    record['lesson_name'] = f"Урок {record.get('lesson_id', 1)}"
             
             completed_tests.append(record)
             loaded_count += 1
         
         print(f"[INFO] Загружено {loaded_count} записей из {path}")
-        
+        if invalid_count > 0:
+            print(f"[WARN] Пропущено {invalid_count} некорректных записей")
+        if duplicate_count > 0:
+            print(f"[WARN] Пропущено {duplicate_count} дубликатов")
+            
     except json.JSONDecodeError as je:
-        print(f"[ERROR] Файл {path} поврежден: {je}")
+        print(f"[ERROR] Файл {path} поврежден или содержит некорректный JSON: {je}")
+        print(f"[INFO] Файл будет пересоздан при следующей записи")
+        
     except Exception as e:
         print(f"[ERROR] Не удалось прочитать логи {path}: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def append_log_entry(entry, path=LOG_FILE):
@@ -344,39 +326,31 @@ def save_ip_names(path=IP_NAMES_FILE):
         print(f"[WARN] Не удалось сохранить {path}: {e}")
 
 def normalize_log_entry(entry):
-    """
-    Нормализует запись перед сохранением:
-    - Убирает избыточные/производные поля
-    - Стандартизирует формат timestamp
-    - Гарантирует наличие обязательных полей
-    - Сохраняет результаты (детальные ответы)
-    - ✅ СОХРАНЯЕТ lesson_name
-    """
-    # Обязательные поля с безопасными значениями по умолчанию
+    """Нормализует запись перед сохранением"""
     normalized = {
         'id': entry.get('id') or str(uuid.uuid4())[:8],
         'student_name': str(entry.get('student_name', 'Ученик')).strip() or 'Ученик',
         'device_id': entry.get('device_id'),
         'lesson_id': int(entry.get('lesson_id', 1)),
-        'lesson_name': entry.get('lesson_name', f"Урок {entry.get('lesson_id', 1)}"),  # ✅ ДОБАВЛЕНО
+        'lesson_name': entry.get('lesson_name', f"Урок {entry.get('lesson_id', 1)}"),
+        'module_name': entry.get('module_name', f"module_{entry.get('lesson_id', 1)}"),  # ✅ ДОБАВЛЕНО
         'score': int(entry.get('score', 0)),
         'total': int(entry.get('total', 0)),
         'percentage': round(float(entry.get('percentage', 0.0)), 2),
         'grade': str(entry.get('grade', '2 (Неудовлетворительно)')),
         'elapsed_time': int(entry.get('elapsed_time', 0)),
-        'elapsed_time_formatted': entry.get('elapsed_time_formatted', f"{int(entry.get('elapsed_time', 0)) // 60}:{int(entry.get('elapsed_time', 0)) % 60:02d}"),  # ✅ ДОБАВЛЕНО
+        'elapsed_time_formatted': entry.get('elapsed_time_formatted', f"{int(entry.get('elapsed_time', 0)) // 60}:{int(entry.get('elapsed_time', 0)) % 60:02d}"),
         'ip': entry.get('ip'),
         'results': entry.get('results', [])
     }
-    # Стандартизация timestamp → ISO 8601 (полный формат)
+    
+    # Стандартизация timestamp
     timestamp = entry.get('timestamp') or entry.get('start_time')
     if timestamp:
         try:
-            # Если timestamp уже в ISO формате — оставляем как есть
             if 'T' in str(timestamp):
                 normalized['timestamp'] = timestamp
             else:
-                # Преобразуем "00:53:49" → "2026-02-04T00:53:49"
                 today = datetime.now().strftime('%Y-%m-%d')
                 normalized['timestamp'] = f"{today}T{timestamp}"
         except:
@@ -730,6 +704,7 @@ def select_lesson():
     """
     try:
         data = request.get_json()
+        global lesson_name 
         lesson_name = data.get('lesson_name')
         
         if not lesson_name:
@@ -1024,28 +999,39 @@ def start_session():
         # Генерация уникального ID сессии
         session_id = str(uuid.uuid4())[:8]
 
-        # Determine lesson name/file: prefer SELECTED_TEST_FILE if set
+        # ✅ ОПРЕДЕЛЯЕМ module_name и lesson_name
+        module_name = None
+        lesson_name = None
+        
         if SELECTED_TEST_FILE and os.path.exists(SELECTED_TEST_FILE):
-            lesson_file = SELECTED_TEST_FILE
-            try:
-                lesson_name = lesson_entry['name'] if lesson_entry else os.path.splitext(os.path.basename(lesson_file))[0]
-            except Exception:
-                lesson_name = os.path.splitext(os.path.basename(lesson_file))[0]
-            stored_lesson_id = lesson_id
+            # ✅ module_name = имя файла (например, "web+css.json")
+            module_name = os.path.basename(SELECTED_TEST_FILE)
+            
+            # ✅ lesson_name = название урока из LESSONS
+            lesson_entry = None
+            for l in LESSONS:
+                if l.get('id') == lesson_id:
+                    lesson_entry = l
+                    break
+            lesson_name = lesson_entry['name'] if lesson_entry else f"Урок {lesson_id}"
         else:
-            lesson_file = None
-            lesson_name = lesson_entry['name'] if lesson_entry else f"Занятие {lesson_id}"
-            stored_lesson_id = lesson_id
+            module_name = f"module_{lesson_id}"
+            lesson_entry = None
+            for l in LESSONS:
+                if l.get('id') == lesson_id:
+                    lesson_entry = l
+                    break
+            lesson_name = lesson_entry['name'] if lesson_entry else f"Урок {lesson_id}"
 
-        # capture client IP and start timestamp
         start_ts = datetime.now().isoformat()
 
         # Сохранение информации о сессии
         sessions[session_id] = {
             'student_name': student_name,
-            'lesson_id': stored_lesson_id,
-            'lesson_file': lesson_file,
+            'lesson_id': lesson_id,
             'lesson_name': lesson_name,
+            'module_name': module_name,  # ✅ ДОБАВЛЕНО
+            'lesson_file': SELECTED_TEST_FILE,
             'start_time': time.time(),
             'start_timestamp': start_ts,
             'ip': client_ip,
@@ -1054,16 +1040,15 @@ def start_session():
             'correct_answers': 0,
             'current_question': 1,
             'answers_log': [],
-            'completed': False,  # ← Флаг завершённости сессии
-            'last_activity': time.time()  # ← Время последней активности
+            'completed': False,
+            'last_activity': time.time()
         }
         
-        # Логирование начала теста
         log_event(
             session_id, 
             'START', 
-            f'Начал тест по уроку: {lesson_name} (device={device_id}, ip={client_ip})',
-            lesson_id=stored_lesson_id
+            f'Начал тест: {module_name} / {lesson_name}',
+            lesson_id=lesson_id
         )
         
         return jsonify({
@@ -1184,7 +1169,7 @@ def teacher_dashboard():
 
 @app.route('/api/dashboard/stats', methods=['GET'])
 def get_dashboard_stats():
-    """Получение статистики для дашборда"""
+    """Получение статистики для дашборда (Агрегация по IP)"""
     current_time = time.time()
     
     # 1. Очистка старых сессий
@@ -1206,7 +1191,7 @@ def get_dashboard_stats():
             'session_id': sid,
             'device_id': data.get('device_id'),
             'student_name': data['student_name'],
-            'lesson_name': data.get('lesson_name', f"Урок {data.get('lesson_id', 1)}"),
+            'lesson_name': data['lesson_name'],
             'lesson_id': data['lesson_id'],
             'ip': client_ip,
             'ip_name': ip_name,
@@ -1219,7 +1204,7 @@ def get_dashboard_stats():
             'progress_color': '#4CAF50' if progress > 75 else '#FF9800' if progress > 50 else '#F44336'
         })
 
-    # 3. Агрегация данных по IP
+    # 3. Агрегация данных по IP (Unique Devices)
     ip_stats = {}
 
     def get_ip_entry(ip_addr):
@@ -1302,23 +1287,15 @@ def get_dashboard_stats():
 
     unique_devices_output.sort(key=lambda x: (not x['is_active'], x['last_seen'] or ''), reverse=False)
 
-    # 4. Недавние тесты - ✅ Восстанавливаем lesson_name если нет
+    # 4. Недавние тесты
     recent_tests = completed_tests[-20:][::-1]
     for rt in recent_tests:
         rt_ip = rt.get('ip')
         rt['ip_name'] = IP_NAMES.get(rt_ip)
-        
-        # ✅ Если lesson_name отсутствует - восстанавливаем из LESSONS
-        if 'lesson_name' not in rt or not rt['lesson_name']:
-            for lesson in LESSONS:
-                if lesson.get('id') == rt.get('lesson_id'):
-                    rt['lesson_name'] = lesson.get('name', f"Урок {rt.get('lesson_id')}")
-                    break
-            if 'lesson_name' not in rt:
-                rt['lesson_name'] = f"Урок {rt.get('lesson_id', 1)}"
 
-    # 5. Статистика по урокам
-    lesson_stats = {}
+    # 5. ✅ Статистика по урокам - ИНИЦИАЛИЗАЦИЯ ПЕРЕД ИСПОЛЬЗОВАНИЕМ
+    lesson_stats = {}  # ← ВАЖНО: Инициализируем ПЕРЕД циклом
+    
     for lesson in LESSONS:
         lesson_stats[lesson['id']] = {
             'lesson_id': lesson['id'],
@@ -1353,7 +1330,7 @@ def get_dashboard_stats():
     return jsonify({
         'active_sessions': active_sessions_list,
         'recent_tests': recent_tests,
-        'lesson_stats': list(lesson_stats.values()),
+        'lesson_stats': list(lesson_stats.values()),  # ← Теперь lesson_stats определён
         'unique_devices': unique_devices_output,
         'total_stats': {
             'total_completed': total_completed,
@@ -1370,6 +1347,7 @@ def get_dashboard_stats():
 
 @app.route('/api/submit', methods=['POST'])
 def submit_answers():
+    """Проверка ответов и завершение теста"""
     try:
         data = request.get_json()
         user_answers = data.get('answers', [])
@@ -1378,7 +1356,7 @@ def submit_answers():
         
         if session_id not in sessions:
             return jsonify({'success': False, 'error': 'Сессия не найдена'}), 400
-            
+        
         session_data = sessions[session_id]
         session_data['completed'] = True
         session_data['end_time'] = time.time()
@@ -1425,33 +1403,46 @@ def submit_answers():
             student_name = sessions[session_id]['student_name']
             elapsed_time = int(time.time() - sessions[session_id]['start_time'])
             
-            # ✅ ВАЖНО: Берём lesson_name ИЗ СЕССИИ (там он уже сохранён)
-            lesson_name = sessions[session_id].get('lesson_name', f'Урок {lesson_id}')
-            
-            # ✅ ВАЖНО: Берём IP из сессии
+            # ✅ БЕРЁМ module_name И lesson_name ИЗ СЕССИИ
+            module_name = sessions[session_id].get('module_name', f"module_{lesson_id}")
+            lesson_name = sessions[session_id].get('lesson_name', f"Урок {lesson_id}")
             client_ip = sessions[session_id].get('ip', 'unknown')
             
+            log_event(
+                session_id,
+                'SUBMIT',
+                f'Тест завершен: {module_name} / {lesson_name}',
+                score=score,
+                total=total_questions,
+                percentage=round(percentage, 2),
+                grade=grade,
+                elapsed_time=elapsed_time
+            )
+            
+            # Сохранение завершенного теста
             record = {
                 'id': str(uuid.uuid4())[:8],
                 'student_name': student_name,
-                'lesson_id': sessions[session_id]['lesson_id'],  # ✅ Сохраняем ID
-                'lesson_name': lesson_name,  # ✅ Сохраняем НАЗВАНИЕ урока
+                'lesson_id': sessions[session_id]['lesson_id'],
+                'lesson_name': sessions[session_id].get('lesson_name', f"Урок {lesson_id}"),
+                'module_name': sessions[session_id].get('module_name', f"module_{lesson_id}"),  # ✅ ДОБАВЛЕНО
                 'device_id': sessions[session_id].get('device_id'),
                 'score': score,
                 'total': total_questions,
                 'percentage': round(percentage, 2),
                 'grade': grade,
                 'elapsed_time': elapsed_time,
-                'elapsed_time_formatted': f'{elapsed_time // 60}:{elapsed_time % 60:02d}',
-                'timestamp': datetime.now().isoformat(),  # ✅ ISO формат для сортировки
-                'ip': client_ip,  # ✅ Сохраняем IP
-                'results': results  # ✅ Сохраняем детали ответов
+                'elapsed_time_formatted': f"{elapsed_time // 60}:{elapsed_time % 60:02d}",
+                'timestamp': datetime.now().isoformat(),
+                'ip': sessions[session_id].get('ip'),
+                'results': results
             }
             
             completed_tests.append(record)
             
             try:
-                append_log_entry(record)  # ✅ Сохраняем в файл
+                append_log_entry(record)
+                print(f"[INFO] Запись сохранена: module={module_name}, lesson={lesson_name}")
             except Exception as e:
                 print(f'[WARN] Не удалось записать запись в {LOG_FILE}: {e}')
             

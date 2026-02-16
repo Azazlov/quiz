@@ -191,15 +191,56 @@ class Dashboard {
         this.showNotification(`❌ ${message}`, 'error');
     }
     
-    async loadStats() {
-        try {
-            const response = await fetch('/api/dashboard/stats');
-            const data = await response.json();
-            
-            this.updateStats(data);
-            this.updateLastUpdateTime();
-        } catch (error) {
-            console.error('Ошибка загрузки статистики:', error);
+async loadStats() {
+    try {
+        // ✅ СОХРАНЯЕМ состояние открытых тестов перед обновлением
+        const preservedBlocks = { ...this.displayedBlocks };
+        
+        const response = await fetch('/api/dashboard/stats');
+        const data = await response.json();
+        
+        this.updateStats(data);
+        this.updateLastUpdateTime();
+        
+        // ✅ ВОССТАНАВЛИВАЕМ состояние открытых тестов после обновления
+        this.restoreDisplayedBlocks(preservedBlocks);
+    } catch (error) {
+        console.error('Ошибка загрузки статистики:', error);
+    }
+}
+
+// ✅ НОВЫЙ МЕТОД для восстановления состояния
+restoreDisplayedBlocks(preservedBlocks) {
+    if (!preservedBlocks || Object.keys(preservedBlocks).length === 0) {
+        return;
+    }
+    
+    for (const [testId, displayState] of Object.entries(preservedBlocks)) {
+        if (displayState === 'block') {
+            const item = document.querySelector(`.test-item[data-test-id="${testId}"] .test-details`);
+            if (item) {
+                item.style.display = 'block';
+                this.displayedBlocks[testId] = 'block';
+            }
+        }
+    }
+}
+
+    restoreDisplayedBlocks(preservedBlocks) {
+        if (!preservedBlocks || Object.keys(preservedBlocks).length === 0) {
+            return;
+        }
+        
+        // Восстанавливаем только те тесты, которые всё ещё существуют
+        for (const [testId, displayState] of Object.entries(preservedBlocks)) {
+            if (displayState === 'block') {
+                const item = document.querySelector(`.test-item[data-test-id="${testId}"] .test-details`);
+                if (item) {
+                    item.style.display = 'block';
+                    // Обновляем состояние в displayedBlocks
+                    this.displayedBlocks[testId] = 'block';
+                }
+            }
         }
     }
     
@@ -246,7 +287,6 @@ class Dashboard {
             const displayName = device.device_name 
                 ? `<strong>${this.escapeHtml(device.device_name)}</strong> <span class="device-ip-small">(${this.escapeHtml(ipAddress)})</span>`
                 : `<span class="device-id-raw">${this.escapeHtml(ipAddress)}</span>`;
-            console.log(device)
             return `
                 <div class="device-card ${device.is_active ? 'device-active' : ''}">
                     <div class="device-header">
@@ -449,135 +489,101 @@ class Dashboard {
             return;
         }
 
-        container.innerHTML = tests.map(test => {
-            const gradeClass = test.percentage >= 90 ? 'excellent' :
-                              test.percentage >= 75 ? 'good' :
-                              test.percentage >= 60 ? 'satisfactory' : 'unsatisfactory';
-                              
-            // Формирование скрытого блока с деталями
-            let detailsHtml = '';
-            if (test.results && test.results.length > 0) {
-                const answersList = test.results.map((r, idx) => {
-                    const userOptionText = r.user_answer !== null ? r.options[r.user_answer] : 'Нет ответа';
-                    const correctOptionText = r.options[r.correct_answer];
-                    return `
-                        <div class="answer-item ${r.is_correct ? 'correct' : 'incorrect'}">
-                            <div class="answer-q"><b>${idx + 1}.</b> ${this.escapeHtml(r.question_text)}</div>
-                            <div class="answer-a">
-                                ${r.is_correct ? '✅' : '❌'} Ваш ответ: ${this.escapeHtml(userOptionText)}
-                                ${!r.is_correct ? `<br><span class="correct-val">Правильно: ${this.escapeHtml(correctOptionText)}</span>` : ''}
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-
-                detailsHtml = `
-                    <div class="test-details" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ccc;">
-                        <h4 style="margin-top: 0; margin-bottom: 10px; color: #333;">Детали ответов:</h4>
-                        ${answersList}
-                    </div>
-                `;
-            }
-            let isDisplaying;
-            // Рендер карточки с onclick обработчиком
-            if (this.displayedBlocks[test.id]){
-                this.displayedBlocks[test.id] === 'block' ? isDisplaying = 'block' : isDisplaying = 'none';
-            }
-            else{
-                isDisplaying = 'none';
-            }
-            return this.renderTestItem(test);
-        }).join('');
+        // ✅ Просто рендерим все тесты через renderTestItem
+        container.innerHTML = tests.map(test => this.renderTestItem(test)).join('');
     }
 
 renderTestItem(test) {
-    // 1. Определяем текущее состояние из переменной в JS
+    // Определяем текущее состояние из переменной в JS
     const isVisible = this.displayedBlocks[test.id] === 'block';
     const displayStyle = isVisible ? 'block' : 'none';
-    // Подготовка классов или стилей
     const gradeClass = this.getGradeClass(test.percentage);
 
-    // Формируем отображение урока: номер + название
-    const lessonDisplay = test.lesson_id 
-        ? `📚 Урок #${test.lesson_id}: ${this.escapeHtml(test.lesson_name || 'Без названия')}`
-        : `📚 ${this.escapeHtml(test.lesson_name || 'Не указан')}`;
-    console.log(test)
+    // ✅ Формируем отображение модуля и урока
+    const moduleDisplay = test.module_name 
+        ? `<span class="test-module">📦 ${this.escapeHtml(test.module_name)}</span>`
+        : '';
+    
+    const lessonDisplay = test.lesson_id && test.lesson_name
+        ? `<span class="test-lesson">📚 Урок #${test.lesson_id}: ${this.escapeHtml(test.lesson_name)}</span>`
+        : `<span class="test-lesson">📚 ${this.escapeHtml(test.lesson_name || 'Без названия')}</span>`;
+
     return `
-         <div class= "test-item " style= "cursor: pointer; " data-test-id= "${test.id} " >
-             <div class= "test-header " >
-                 <span class= "test-name " >${this.escapeHtml(test.student_name)}${test.ip_name ? ' (' + this.escapeHtml(test.ip_name) + ')' : ''} </span >
-                 <span class= "test-id " >ID: ${this.escapeHtml(test.id || '')} </span >
-                 <span class= "test-time " >${test.timestamp  && test.timestamp.length  > 11 ? formatTimestamp(test.timestamp) : test.timestamp} </span >
-             </div >
-             <div class= "test-info " >
-                 <div class= "test-lesson" >${lessonDisplay} </div >
-                 <div class= "test-meta" >IP: ${this.escapeHtml(test.ip || 'unknown')} • Device: ${this.escapeHtml(test.device_id || '')} </div >
-                 <div class= "test-score ${gradeClass} " >
+        <div class="test-item" style="cursor: pointer;" data-test-id="${test.id}">
+            <div class="test-header">
+                <span class="test-name">${this.escapeHtml(test.student_name)}${test.ip_name ? ' (' + this.escapeHtml(test.ip_name) + ')' : ''}</span>
+                <span class="test-id">ID: ${this.escapeHtml(test.id || '')}</span>
+                <span class="test-time">${test.timestamp && test.timestamp.length > 11 ? formatTimestamp(test.timestamp) : test.timestamp}</span>
+            </div>
+            <div class="test-info">
+                <div class="test-module-lesson">
+                    ${moduleDisplay}
+                    ${lessonDisplay}
+                </div>
+                <div class="test-meta">IP: ${this.escapeHtml(test.ip || 'unknown')} • Device: ${this.escapeHtml(test.device_id || '')}</div>
+                <div class="test-score ${gradeClass}">
                     ${test.score}/${test.total} (${test.percentage}%)
-                     <span class= "test-grade " >${test.grade} </span >
-                 </div >
-                 <div class= "test-duration " >⏱️ ${test.elapsed_time_formatted || this.formatElapsedTime(test.elapsed_time)} </div >
-             </div >
-             <div class= "test-details " style= "display: ${displayStyle} " >
-                ${this.renderDetails(test)} 
-             </div >
-         </div >
-    `;
-}
-
-renderDetails(test) {
-    // Если в объекте test нет данных о вопросах, возвращаем заглушку
-    if (!test.results || !Array.isArray(test.results)) {
-        return `<div class="no-details">Детальная информация о вопросах отсутствует.</div>`;
-    }
-
-    return `
-        <div class="test-details-content">
-            <h4 class="details-title">Результаты по вопросам:</h4>
-            <ul class="questions-list">
-                ${test.results.map((q, index) => {
-                    const isCorrect = q.is_correct; // Или q.user_answer === q.correct_answer
-                    const statusClass = isCorrect ? 'q-success' : 'q-error';
-                    const statusIcon = isCorrect ? '✅' : '❌';
-
-                    return `
-                        <li class="question-item ${statusClass}">
-                            <div class="q-main">
-                                <span class="q-number">#${index + 1}</span>
-                                <span class="q-text">${this.escapeHtml(q.question_text)}</span>
-                                <span class="q-icon">${statusIcon}</span>
-                            </div>
-                            <div class="q-answers">
-                                <div class="q-user-answer">
-                                    <strong>Ваш ответ:</strong> ${this.escapeHtml(q.options[q.user_answer] || 'нет ответа')}
-                                </div>
-                                ${!isCorrect ? `
-                                    <div class="q-correct-answer">
-                                        <strong>Правильный:</strong> ${this.escapeHtml(q.options[q.correct_answer])}
-                                    </div>
-                                ` : ''}
-                            </div>
-                        </li>
-                    `;
-                }).join('')}
-            </ul>
+                    <span class="test-grade">${test.grade}</span>
+                </div>
+                <div class="test-duration">⏱️ ${test.elapsed_time_formatted || this.formatElapsedTime(test.elapsed_time)}</div>
+            </div>
+            <div class="test-details" style="display: ${displayStyle}">
+                ${this.renderDetails(test)}
+            </div>
         </div>
     `;
 }
+
+    renderDetails(test) {
+        // Если в объекте test нет данных о вопросах, возвращаем заглушку
+        if (!test.results || !Array.isArray(test.results)) {
+            return `<div class="no-details">Детальная информация о вопросах отсутствует.</div>`;
+        }
+
+        return `
+            <div class="test-details-content">
+                <h4 class="details-title">Результаты по вопросам:</h4>
+                <ul class="questions-list">
+                    ${test.results.map((q, index) => {
+                        const isCorrect = q.is_correct; // Или q.user_answer === q.correct_answer
+                        const statusClass = isCorrect ? 'q-success' : 'q-error';
+                        const statusIcon = isCorrect ? '✅' : '❌';
+
+                        return `
+                            <li class="question-item ${statusClass}">
+                                <div class="q-main">
+                                    <span class="q-number">#${index + 1}</span>
+                                    <span class="q-text">${this.escapeHtml(q.question_text)}</span>
+                                    <span class="q-icon">${statusIcon}</span>
+                                </div>
+                                <div class="q-answers">
+                                    <div class="q-user-answer">
+                                        <strong>Ваш ответ:</strong> ${this.escapeHtml(q.options[q.user_answer] || 'нет ответа')}
+                                    </div>
+                                    ${!isCorrect ? `
+                                        <div class="q-correct-answer">
+                                            <strong>Правильный:</strong> ${this.escapeHtml(q.options[q.correct_answer])}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </li>
+                        `;
+                    }).join('')}
+                </ul>
+            </div>
+        `;
+    }
 
 toggleTestDetails(testId) {
     // Переключаем состояние в JS
     const current = this.displayedBlocks[testId];
     this.displayedBlocks[testId] = (current === 'block') ? 'none' : 'block';
     
-    // Вариант А: Просто обновляем DOM без полного перерендера (быстрее)
+    // Обновляем DOM без полного перерендера
     const item = document.querySelector(`.test-item[data-test-id="${testId}"] .test-details`);
     if (item) {
         item.style.display = this.displayedBlocks[testId];
     }
-    
-    // Вариант Б: Если данных много и вы вызываете полный render() списка 
-    // после каждого действия, то вариант А не нужен, DOM обновится сам.
 }
     
     updateLessonStats(lessons) {

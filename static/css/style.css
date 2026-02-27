@@ -715,14 +715,6 @@ header.quiz-header .subtitle {
     font-weight: bold;
 }
 
-.result-item.correct .result-answer::before {
-    content: "✅";
-}
-
-.result-item.incorrect .result-answer::before {
-    content: "❌";
-}
-
 /* Правильный ответ при ошибке (вторая строка) */
 .result-answer br + strong {
     color: var(--success);
